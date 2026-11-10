@@ -31,6 +31,7 @@ class MusicNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        WallpaperState.init(applicationContext)
         try {
             sessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as MediaSessionManager
             val component = ComponentName(this, MusicNotificationListener::class.java)
@@ -97,6 +98,6 @@ class MusicNotificationListener : NotificationListenerService() {
         }
 
         val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
-        WallpaperState.updateMedia(bitmap, isPlaying, title)
+        WallpaperState.updateMedia(applicationContext, bitmap, isPlaying, title)
     }
 }
