@@ -14,6 +14,7 @@ import android.media.session.PlaybackState
 import android.net.Uri
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import kotlin.math.max
 
 class MusicNotificationListener : NotificationListenerService() {
 
@@ -143,10 +144,12 @@ class MusicNotificationListener : NotificationListenerService() {
             bitmap = extractArtFromNotifications(controller.packageName)
         }
 
-        if (bitmap != null && lastExtractedArt != null && bitmap.sameAs(lastExtractedArt)) {
+        val optimized = optimizeBitmapSize(bitmap)
+
+        if (optimized != null && lastExtractedArt != null && optimized.sameAs(lastExtractedArt)) {
             bitmap = lastExtractedArt
-        } else if (bitmap != null) {
-            lastExtractedArt = bitmap
+        } else if (optimized != null) {
+            lastExtractedArt = optimized
         }
 
         lastPackageName = pkg
@@ -156,6 +159,21 @@ class MusicNotificationListener : NotificationListenerService() {
         lastPlayingState = isPlaying
 
         WallpaperState.updateMedia(applicationContext, lastExtractedArt, isPlaying, title)
+    }
+
+    private fun optimizeBitmapSize(bitmap: Bitmap?): Bitmap? {
+        if (bitmap == null || bitmap.isRecycled) return null
+        val maxDim = 1080
+        if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
+
+        val scale = maxDim.toFloat() / max(bitmap.width, bitmap.height)
+        val targetW = (bitmap.width * scale).toInt().coerceAtLeast(1)
+        val targetH = (bitmap.height * scale).toInt().coerceAtLeast(1)
+        val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+        if (scaled !== bitmap) {
+            bitmap.recycle()
+        }
+        return scaled
     }
 
     private fun extractArtFromNotifications(targetPkg: String): Bitmap? {

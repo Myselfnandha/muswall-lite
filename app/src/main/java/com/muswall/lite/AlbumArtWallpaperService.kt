@@ -8,12 +8,14 @@ import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.service.wallpaper.WallpaperService
+import android.view.Choreographer
 import android.view.SurfaceHolder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class AlbumArtWallpaperService : WallpaperService() {
@@ -24,13 +26,15 @@ class AlbumArtWallpaperService : WallpaperService() {
 
     inner class AlbumEngine : Engine() {
         private val scope = CoroutineScope(Dispatchers.Default + Job())
+        private val mainHandler = Handler(Looper.getMainLooper())
         private var isVisibleState = false
 
         private var surfaceWidth = 1080
         private var surfaceHeight = 2400
 
-        private var transitionJob: Job? = null
-        private var renderJob: Job? = null
+        private var isAnimating = false
+        private var animStartTimeNanos = 0L
+        private val animDurationNanos = 300_000_000L
         private var transitionProgress = 1f
         private var transitionMode = ScreenConfig.TRANSITION_FADE
 
@@ -40,18 +44,43 @@ class AlbumArtWallpaperService : WallpaperService() {
         private var lastRestoreState = true
         private var cachedIsLocked = false
 
+        private val frameCallback = object : Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                if (!isAnimating || !isVisibleState) return
+
+                if (animStartTimeNanos == 0L) {
+                    animStartTimeNanos = frameTimeNanos
+                }
+
+                val elapsed = frameTimeNanos - animStartTimeNanos
+                val t = (elapsed.toFloat() / animDurationNanos).coerceIn(0f, 1f)
+                transitionProgress = 1f - (1f - t) * (1f - t)
+
+                if (t >= 1f) {
+                    isAnimating = false
+                    transitionProgress = 1f
+                    previousBitmap = null
+                }
+
+                renderDirect()
+
+                if (t < 1f) {
+                    Choreographer.getInstance().postFrameCallback(this)
+                }
+            }
+        }
+
         private val screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     Intent.ACTION_SCREEN_OFF -> {
                         cachedIsLocked = true
-                        transitionJob?.cancel()
-                        transitionProgress = 1f
+                        stopAnimation()
                     }
                     Intent.ACTION_USER_PRESENT -> {
                         val wasLocked = cachedIsLocked
                         cachedIsLocked = false
-                        if (wasLocked && WallpaperState.separateScreens.value) {
+                        if (wasLocked && WallpaperState.separateScreens.value && isVisibleState) {
                             scheduleRender()
                         }
                     }
@@ -90,14 +119,23 @@ class AlbumArtWallpaperService : WallpaperService() {
                     }
 
                     if (!isRestored && artChanged && newArt != null) {
-                        previousBitmap = lastRenderedBlur ?: lastRenderedArt ?: WallpaperState.getRestoreArt(cachedIsLocked)
-                        lastRenderedArt = newArt
-                        lastRenderedBlur = WallpaperState.getPreparedBlur(cachedIsLocked)
-                        triggerApplyTransition()
+                        if (isVisibleState) {
+                            previousBitmap = lastRenderedBlur ?: lastRenderedArt ?: WallpaperState.getRestoreArt(cachedIsLocked)
+                            lastRenderedArt = newArt
+                            lastRenderedBlur = WallpaperState.getPreparedBlur(cachedIsLocked)
+                            triggerApplyTransition()
+                        } else {
+                            lastRenderedArt = newArt
+                            lastRenderedBlur = WallpaperState.getPreparedBlur(cachedIsLocked)
+                            transitionProgress = 1f
+                            previousBitmap = null
+                        }
                     } else {
                         lastRenderedArt = newArt
                         lastRenderedBlur = WallpaperState.getPreparedBlur(cachedIsLocked)
-                        scheduleRender()
+                        if (isVisibleState) {
+                            scheduleRender()
+                        }
                     }
                 }
             }
@@ -110,12 +148,17 @@ class AlbumArtWallpaperService : WallpaperService() {
                         val restoreArt = WallpaperState.getRestoreArt(cachedIsLocked)
                         val currentBlur = WallpaperState.getPreparedBlur(cachedIsLocked)
 
-                        if (isRestored) {
-                            previousBitmap = currentBlur ?: currentArt ?: restoreArt
-                            triggerRestoreTransition()
+                        if (isVisibleState) {
+                            if (isRestored) {
+                                previousBitmap = currentBlur ?: currentArt ?: restoreArt
+                                triggerRestoreTransition()
+                            } else {
+                                previousBitmap = restoreArt ?: currentBlur ?: currentArt
+                                triggerApplyTransition()
+                            }
                         } else {
-                            previousBitmap = restoreArt ?: currentBlur ?: currentArt
-                            triggerApplyTransition()
+                            transitionProgress = 1f
+                            previousBitmap = null
                         }
                     }
                 }
@@ -123,7 +166,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.homeRestoreArt.collect {
-                    if (WallpaperState.isRestoreActive.value && !cachedIsLocked) {
+                    if (WallpaperState.isRestoreActive.value && !cachedIsLocked && isVisibleState) {
                         scheduleRender()
                     }
                 }
@@ -131,7 +174,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.lockRestoreArt.collect {
-                    if (WallpaperState.isRestoreActive.value && cachedIsLocked) {
+                    if (WallpaperState.isRestoreActive.value && cachedIsLocked && isVisibleState) {
                         scheduleRender()
                     }
                 }
@@ -141,7 +184,7 @@ class AlbumArtWallpaperService : WallpaperService() {
                 WallpaperState.preparedHomeBlur.collect { blur ->
                     if (!WallpaperState.isRestoreActive.value && !cachedIsLocked) {
                         lastRenderedBlur = blur
-                        scheduleRender()
+                        if (isVisibleState) scheduleRender()
                     }
                 }
             }
@@ -150,14 +193,14 @@ class AlbumArtWallpaperService : WallpaperService() {
                 WallpaperState.preparedLockBlur.collect { blur ->
                     if (!WallpaperState.isRestoreActive.value && cachedIsLocked) {
                         lastRenderedBlur = blur
-                        scheduleRender()
+                        if (isVisibleState) scheduleRender()
                     }
                 }
             }
 
             scope.launch {
                 WallpaperState.preparedHomeRestoreBlur.collect {
-                    if (WallpaperState.isRestoreActive.value && !cachedIsLocked) {
+                    if (WallpaperState.isRestoreActive.value && !cachedIsLocked && isVisibleState) {
                         scheduleRender()
                     }
                 }
@@ -165,7 +208,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.preparedLockRestoreBlur.collect {
-                    if (WallpaperState.isRestoreActive.value && cachedIsLocked) {
+                    if (WallpaperState.isRestoreActive.value && cachedIsLocked && isVisibleState) {
                         scheduleRender()
                     }
                 }
@@ -173,7 +216,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.settingsChanged.collect {
-                    scheduleRender()
+                    if (isVisibleState) scheduleRender()
                 }
             }
         }
@@ -183,8 +226,7 @@ class AlbumArtWallpaperService : WallpaperService() {
                 unregisterReceiver(screenReceiver)
             } catch (_: Exception) {
             }
-            transitionJob?.cancel()
-            renderJob?.cancel()
+            stopAnimation()
             super.onDestroy()
         }
 
@@ -195,8 +237,7 @@ class AlbumArtWallpaperService : WallpaperService() {
                 updateKeyguardState(forceRender = false)
                 scheduleRender()
             } else {
-                transitionJob?.cancel()
-                transitionProgress = 1f
+                stopAnimation()
             }
         }
 
@@ -213,7 +254,7 @@ class AlbumArtWallpaperService : WallpaperService() {
                 val isLocked = km?.isKeyguardLocked ?: false
                 val changed = (cachedIsLocked != isLocked)
                 cachedIsLocked = isLocked
-                if (forceRender && changed && WallpaperState.separateScreens.value) {
+                if (forceRender && changed && WallpaperState.separateScreens.value && isVisibleState) {
                     scheduleRender()
                 }
             } catch (_: Exception) {
@@ -224,60 +265,49 @@ class AlbumArtWallpaperService : WallpaperService() {
             val context: Context = this@AlbumArtWallpaperService
             val config = WallpaperState.getEffectiveConfig(context, isLockScreen = cachedIsLocked)
             if (config.applyEffect == ScreenConfig.TRANSITION_NONE || !isVisibleState) {
-                transitionProgress = 1f
-                previousBitmap = null
-                scheduleRender()
+                stopAnimation()
+                renderDirect()
                 return
             }
 
-            transitionJob?.cancel()
-            transitionJob = scope.launch {
-                val frames = 18
-                val delayMs = 16L
-                transitionMode = config.applyEffect
-                for (i in 1..frames) {
-                    val t = i / frames.toFloat()
-                    transitionProgress = 1f - (1f - t) * (1f - t)
-                    renderDirect()
-                    delay(delayMs)
-                }
-                transitionProgress = 1f
-                previousBitmap = null
-                renderDirect()
-            }
+            startAnimation(config.applyEffect)
         }
 
         private fun triggerRestoreTransition() {
             val context: Context = this@AlbumArtWallpaperService
             val config = WallpaperState.getEffectiveConfig(context, isLockScreen = cachedIsLocked)
             if (config.restoreEffect == ScreenConfig.TRANSITION_NONE || !isVisibleState) {
-                transitionProgress = 1f
-                previousBitmap = null
-                scheduleRender()
+                stopAnimation()
+                renderDirect()
                 return
             }
 
-            transitionJob?.cancel()
-            transitionJob = scope.launch {
-                val frames = 18
-                val delayMs = 16L
-                transitionMode = config.restoreEffect
-                for (i in 1..frames) {
-                    val t = i / frames.toFloat()
-                    transitionProgress = 1f - (1f - t) * (1f - t)
-                    renderDirect()
-                    delay(delayMs)
-                }
-                transitionProgress = 1f
-                previousBitmap = null
-                renderDirect()
+            startAnimation(config.restoreEffect)
+        }
+
+        private fun startAnimation(mode: Int) {
+            transitionMode = mode
+            isAnimating = true
+            animStartTimeNanos = 0L
+            mainHandler.post {
+                Choreographer.getInstance().removeFrameCallback(frameCallback)
+                Choreographer.getInstance().postFrameCallback(frameCallback)
+            }
+        }
+
+        private fun stopAnimation() {
+            isAnimating = false
+            transitionProgress = 1f
+            previousBitmap = null
+            mainHandler.post {
+                Choreographer.getInstance().removeFrameCallback(frameCallback)
             }
         }
 
         private fun scheduleRender() {
-            if (!isVisibleState) return
-            renderJob?.cancel()
-            renderJob = scope.launch {
+            if (!isVisibleState || isAnimating) return
+            mainHandler.post {
+                if (!isVisibleState || isAnimating) return@post
                 renderDirect()
             }
         }

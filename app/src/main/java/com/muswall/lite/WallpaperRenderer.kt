@@ -77,22 +77,18 @@ object WallpaperRenderer {
 
             if (isRestoreActive) {
                 if (config.applyEffectsToRestore) {
-                    val blur = preparedRestoreBlur ?: getNormalBlur(targetArt, config.blurPercent)
-                    drawFullBleed(canvas, blur, width, height, progress)
+                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedRestoreBlur)
                 } else {
                     drawFullBleed(canvas, targetArt, width, height, progress)
                 }
             } else {
                 if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
-                    val blur = preparedBlur ?: getNormalBlur(targetArt, config.blurPercent)
                     if (progress < 1f) {
                         drawFullBleed(canvas, targetArt, width, height, 1f - progress)
                     }
-                    drawFullBleed(canvas, blur, width, height, progress)
-                } else if (preparedBlur != null && !preparedBlur.isRecycled) {
-                    drawFullBleed(canvas, preparedBlur, width, height, progress)
+                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedBlur)
                 } else {
-                    drawBlur(canvas, targetArt, width, height, config, progress)
+                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedBlur)
                 }
             }
 
@@ -100,6 +96,22 @@ object WallpaperRenderer {
         }
 
         applyDimming(canvas, width, height, config.dimPercent)
+    }
+
+    private fun renderBlurredArt(
+        canvas: Canvas,
+        art: Bitmap,
+        width: Int,
+        height: Int,
+        blurPercent: Int,
+        progress: Float,
+        preparedFallback: Bitmap?
+    ) {
+        if (preparedFallback != null && !preparedFallback.isRecycled) {
+            drawFullBleed(canvas, preparedFallback, width, height, progress)
+        } else {
+            drawBlur(canvas, art, width, height, blurPercent, progress)
+        }
     }
 
     private fun drawFallbackBackground(canvas: Canvas, width: Int, height: Int) {
@@ -137,11 +149,11 @@ object WallpaperRenderer {
         src: Bitmap,
         targetWidth: Int,
         targetHeight: Int,
-        config: ScreenConfig,
+        blurPercent: Int,
         progress: Float
     ) {
         if (src.isRecycled) return
-        val effectiveBlur = if (config.blurPercent > 0) config.blurPercent else 50
+        val effectiveBlur = if (blurPercent > 0) blurPercent else 50
         val blurred = getNormalBlur(src, effectiveBlur)
         if (blurred.isRecycled) return
 
