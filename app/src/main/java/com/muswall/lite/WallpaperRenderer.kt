@@ -3,9 +3,8 @@ package com.muswall.lite
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Rect
-import android.graphics.RectF
 import kotlin.math.max
 
 object WallpaperRenderer {
@@ -14,10 +13,13 @@ object WallpaperRenderer {
     private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
+    private val renderMatrix = Matrix()
 
     private var cachedSourceKey: Int = 0
     private var cachedBlurPercent: Int = -1
     private var cachedBlurredBitmap: Bitmap? = null
+    private var scratchPixels: IntArray? = null
+    private var scratchTemp: IntArray? = null
 
     fun render(
         canvas: Canvas,
@@ -138,9 +140,10 @@ object WallpaperRenderer {
         val left = (targetWidth - scaledW) / 2f
         val top = (targetHeight - scaledH) / 2f
 
-        val destRect = RectF(left, top, left + scaledW, top + scaledH)
-        val srcRect = Rect(0, 0, src.width, src.height)
-        canvas.drawBitmap(src, srcRect, destRect, bitmapPaint)
+        renderMatrix.reset()
+        renderMatrix.postScale(scale, scale)
+        renderMatrix.postTranslate(left, top)
+        canvas.drawBitmap(src, renderMatrix, bitmapPaint)
         bitmapPaint.alpha = 255
     }
 
@@ -157,21 +160,7 @@ object WallpaperRenderer {
         val blurred = getNormalBlur(src, effectiveBlur)
         if (blurred.isRecycled) return
 
-        val scale = max(targetWidth.toFloat() / blurred.width, targetHeight.toFloat() / blurred.height)
-        val scaledW = scale * blurred.width
-        val scaledH = scale * blurred.height
-
-        val left = (targetWidth - scaledW) / 2f
-        val top = (targetHeight - scaledH) / 2f
-
-        val destRect = RectF(left, top, left + scaledW, top + scaledH)
-        val srcRect = Rect(0, 0, blurred.width, blurred.height)
-
-        val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
-        if (alpha <= 0) return
-        bitmapPaint.alpha = alpha
-        canvas.drawBitmap(blurred, srcRect, destRect, bitmapPaint)
-        bitmapPaint.alpha = 255
+        drawFullBleed(canvas, blurred, targetWidth, targetHeight, progress)
     }
 
     private fun applyDimming(canvas: Canvas, width: Int, height: Int, dimPercent: Int) {
@@ -193,18 +182,27 @@ object WallpaperRenderer {
         val sw = (source.width / downscale).coerceAtLeast(16)
         val sh = (source.height / downscale).coerceAtLeast(16)
         val small = Bitmap.createScaledBitmap(source, sw, sh, true)
-        val output = small.copy(Bitmap.Config.ARGB_8888, true)
+        val output = small.copy(Bitmap.Config.RGB_565, true)
         if (small !== output) {
             small.recycle()
         }
 
         val w = output.width
         val h = output.height
-        val pixels = IntArray(w * h)
+        val total = w * h
+
+        val pixels = if (scratchPixels != null && scratchPixels!!.size >= total) {
+            scratchPixels!!
+        } else {
+            val newArr = IntArray(total)
+            scratchPixels = newArr
+            newArr
+        }
+
         output.getPixels(pixels, 0, w, 0, 0, w, h)
 
         val radius = (blurPercent * 16 / 100).coerceIn(1, 16)
-        boxBlur(pixels, w, h, radius)
+        twoPassBoxBlur(pixels, w, h, radius)
         output.setPixels(pixels, 0, w, 0, 0, w, h)
 
         cachedBlurredBitmap = output
@@ -213,9 +211,22 @@ object WallpaperRenderer {
         return output
     }
 
-    private fun boxBlur(pixels: IntArray, w: Int, h: Int, r: Int) {
+    private fun twoPassBoxBlur(pixels: IntArray, w: Int, h: Int, r: Int) {
+        val total = w * h
+        val temp = if (scratchTemp != null && scratchTemp!!.size >= total) {
+            scratchTemp!!
+        } else {
+            val newArr = IntArray(total)
+            scratchTemp = newArr
+            newArr
+        }
+
+        boxBlurPass(pixels, temp, w, h, r)
+        boxBlurPass(pixels, temp, w, h, r)
+    }
+
+    private fun boxBlurPass(pixels: IntArray, temp: IntArray, w: Int, h: Int, r: Int) {
         val div = 2 * r + 1
-        val temp = IntArray(w * h)
 
         for (y in 0 until h) {
             var a = 0

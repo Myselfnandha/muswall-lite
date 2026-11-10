@@ -203,20 +203,29 @@ fun MainScreen() {
         }
     }
 
+    val homeRestoreBlur = remember(
+        homeRestoreArt,
+        localHomeConfig.blurPercent,
+        localHomeConfig.applyEffectsToRestore
+    ) {
+        if (localHomeConfig.applyEffectsToRestore && homeRestoreArt != null) {
+            WallpaperRenderer.getNormalBlur(homeRestoreArt!!, localHomeConfig.blurPercent)
+        } else null
+    }
+
     val homePreviewBitmap = remember(
         displayArt,
         homeRestoreArt,
         previewShowingRestore,
         localHomeConfig,
         previewAnimProgress,
-        preparedHomeBlur
+        preparedHomeBlur,
+        homeRestoreBlur
     ) {
         val mode = if (previewShowingRestore) localHomeConfig.restoreEffect else localHomeConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else homeRestoreArt
         val blurBitmap = if (previewShowingRestore) null else (if (localHomeConfig.blurPercent == homeConfig.blurPercent) preparedHomeBlur else null) ?: displayArt
-        val restoreBlurBitmap = if (previewShowingRestore && localHomeConfig.applyEffectsToRestore && homeRestoreArt != null) {
-            WallpaperRenderer.getNormalBlur(homeRestoreArt!!, localHomeConfig.blurPercent)
-        } else null
+        val restoreBlurBitmap = if (previewShowingRestore) homeRestoreBlur else null
         renderScreenPreview(
             art = displayArt,
             restore = homeRestoreArt,
@@ -230,24 +239,32 @@ fun MainScreen() {
         )
     }
 
+    val effectiveLockRestore = if (localSeparateScreens) (lockRestoreArt ?: homeRestoreArt) else homeRestoreArt
+    val effectiveLockConfig = if (localSeparateScreens) localLockConfig else localHomeConfig
+
+    val lockRestoreBlur = remember(
+        effectiveLockRestore,
+        effectiveLockConfig.blurPercent,
+        effectiveLockConfig.applyEffectsToRestore
+    ) {
+        if (effectiveLockConfig.applyEffectsToRestore && effectiveLockRestore != null) {
+            WallpaperRenderer.getNormalBlur(effectiveLockRestore!!, effectiveLockConfig.blurPercent)
+        } else null
+    }
+
     val lockPreviewBitmap = remember(
         displayArt,
-        lockRestoreArt,
-        homeRestoreArt,
+        effectiveLockRestore,
         previewShowingRestore,
-        localLockConfig,
-        localSeparateScreens,
+        effectiveLockConfig,
         previewAnimProgress,
-        preparedLockBlur
+        preparedLockBlur,
+        lockRestoreBlur
     ) {
-        val effectiveLockRestore = if (localSeparateScreens) (lockRestoreArt ?: homeRestoreArt) else homeRestoreArt
-        val effectiveLockConfig = if (localSeparateScreens) localLockConfig else localHomeConfig
         val mode = if (previewShowingRestore) effectiveLockConfig.restoreEffect else effectiveLockConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else effectiveLockRestore
         val blurBitmap = if (previewShowingRestore) null else (if (effectiveLockConfig.blurPercent == lockConfig.blurPercent) preparedLockBlur else null) ?: displayArt
-        val restoreBlurBitmap = if (previewShowingRestore && effectiveLockConfig.applyEffectsToRestore && effectiveLockRestore != null) {
-            WallpaperRenderer.getNormalBlur(effectiveLockRestore, effectiveLockConfig.blurPercent)
-        } else null
+        val restoreBlurBitmap = if (previewShowingRestore) lockRestoreBlur else null
         renderScreenPreview(
             art = displayArt,
             restore = effectiveLockRestore,

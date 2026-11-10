@@ -248,6 +248,11 @@ class AlbumArtWallpaperService : WallpaperService() {
             scheduleRender()
         }
 
+        override fun onSurfaceRedrawNeeded(holder: SurfaceHolder) {
+            super.onSurfaceRedrawNeeded(holder)
+            renderDirect()
+        }
+
         private fun updateKeyguardState(forceRender: Boolean = true) {
             try {
                 val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager

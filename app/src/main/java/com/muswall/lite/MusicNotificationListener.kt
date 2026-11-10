@@ -14,9 +14,17 @@ import android.media.session.PlaybackState
 import android.net.Uri
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.max
 
 class MusicNotificationListener : NotificationListenerService() {
+
+    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    private var extractJob: Job? = null
 
     private var sessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
@@ -56,6 +64,7 @@ class MusicNotificationListener : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        extractJob?.cancel()
         activeController?.unregisterCallback(callback)
         sessionManager?.removeOnActiveSessionsChangedListener(sessionsListener)
         super.onListenerDisconnected()
@@ -125,6 +134,27 @@ class MusicNotificationListener : NotificationListenerService() {
             return
         }
 
+        extractJob?.cancel()
+        if (!isSamePlaying && isPlaying != lastPlayingState) {
+            lastPlayingState = isPlaying
+            WallpaperState.updateMedia(applicationContext, lastExtractedArt, isPlaying, title)
+        }
+
+        extractJob = scope.launch {
+            delay(120L)
+            processTrackArtwork(controller, isPlaying, title, artist, artUriStr, pkg)
+        }
+    }
+
+    private fun processTrackArtwork(
+        controller: MediaController,
+        isPlaying: Boolean,
+        title: String?,
+        artist: String?,
+        artUriStr: String?,
+        pkg: String
+    ) {
+        val metadata = controller.metadata
         var bitmap: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
         if (bitmap == null) {
             bitmap = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
