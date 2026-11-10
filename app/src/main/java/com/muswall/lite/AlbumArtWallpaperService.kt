@@ -1,7 +1,11 @@
 package com.muswall.lite
 
 import android.app.KeyguardManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
@@ -28,23 +32,65 @@ class AlbumArtWallpaperService : WallpaperService() {
         private var transitionProgress = 1f
         private var transitionMode = ScreenConfig.TRANSITION_FADE
 
+        private var previousBitmap: Bitmap? = null
+        private var lastRenderedArt: Bitmap? = null
+        private var lastRestoreState = true
+
+        private val screenReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_USER_PRESENT,
+                    Intent.ACTION_SCREEN_ON,
+                    Intent.ACTION_SCREEN_OFF -> {
+                        renderIfVisible()
+                    }
+                }
+            }
+        }
+
         override fun onCreate(surfaceHolder: SurfaceHolder) {
             super.onCreate(surfaceHolder)
             val context: Context = this@AlbumArtWallpaperService
             WallpaperState.init(context)
 
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_USER_PRESENT)
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            }
+            registerReceiver(screenReceiver, filter)
+
+            lastRestoreState = WallpaperState.isRestoreActive.value
+            lastRenderedArt = WallpaperState.currentArt.value
+
             scope.launch {
-                WallpaperState.currentArt.collect {
-                    triggerApplyTransition()
+                WallpaperState.currentArt.collect { newArt ->
+                    val isRestored = WallpaperState.isRestoreActive.value
+                    if (!isRestored && newArt != null && newArt !== lastRenderedArt) {
+                        previousBitmap = lastRenderedArt ?: WallpaperState.getRestoreArt(isPhoneLocked())
+                        lastRenderedArt = newArt
+                        triggerApplyTransition()
+                    } else {
+                        lastRenderedArt = newArt
+                        renderIfVisible()
+                    }
                 }
             }
 
             scope.launch {
                 WallpaperState.isRestoreActive.collect { isRestored ->
-                    if (isRestored) {
-                        triggerRestoreTransition()
-                    } else {
-                        triggerApplyTransition()
+                    if (isRestored != lastRestoreState) {
+                        lastRestoreState = isRestored
+                        val currentArt = WallpaperState.currentArt.value
+                        val restoreArt = WallpaperState.getRestoreArt(isPhoneLocked())
+
+                        if (isRestored) {
+                            previousBitmap = currentArt ?: restoreArt
+                            triggerRestoreTransition()
+                        } else {
+                            previousBitmap = restoreArt ?: currentArt
+                            triggerApplyTransition()
+                        }
                     }
                 }
             }
@@ -54,6 +100,15 @@ class AlbumArtWallpaperService : WallpaperService() {
                     renderIfVisible()
                 }
             }
+        }
+
+        override fun onDestroy() {
+            try {
+                unregisterReceiver(screenReceiver)
+            } catch (_: Exception) {
+            }
+            transitionJob?.cancel()
+            super.onDestroy()
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
@@ -163,7 +218,8 @@ class AlbumArtWallpaperService : WallpaperService() {
                 isRestoreActive = isRestoreActive,
                 config = config,
                 transitionProgress = transitionProgress,
-                transitionMode = transitionMode
+                transitionMode = transitionMode,
+                previousBitmap = previousBitmap
             )
         }
     }

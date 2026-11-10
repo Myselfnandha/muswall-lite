@@ -51,7 +51,7 @@ object WallpaperState {
     private val _lockRestoreArt = MutableStateFlow<Bitmap?>(null)
     val lockRestoreArt = _lockRestoreArt.asStateFlow()
 
-    private val _isRestoreActive = MutableStateFlow(false)
+    private val _isRestoreActive = MutableStateFlow(true)
     val isRestoreActive = _isRestoreActive.asStateFlow()
 
     private val _isPlaying = MutableStateFlow(false)
@@ -75,10 +75,15 @@ object WallpaperState {
     fun init(context: Context) {
         loadConfigs(context)
         loadRestoreImages(context)
+        if (!_isPlaying.value) {
+            _isRestoreActive.value = true
+        }
     }
 
     fun updateMedia(context: Context, art: Bitmap?, playing: Boolean, title: String?) {
-        _currentArt.value = art
+        if (art != null) {
+            _currentArt.value = art
+        }
         _isPlaying.value = playing
         _trackTitle.value = title
 

@@ -44,6 +44,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
@@ -84,6 +86,7 @@ fun MusWallLiteTheme(content: @Composable () -> Unit) {
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     val homeConfig by WallpaperState.homeConfig.collectAsState()
     val lockConfig by WallpaperState.lockConfig.collectAsState()
@@ -97,6 +100,21 @@ fun MainScreen() {
 
     var activeTab by remember { mutableIntStateOf(0) }
     var previewShowingRestore by remember { mutableStateOf(false) }
+    var previewAnimProgress by remember { mutableFloatStateOf(1f) }
+
+    fun playPreviewTransition(targetRestoreState: Boolean) {
+        coroutineScope.launch {
+            previewShowingRestore = targetRestoreState
+            val frames = 18
+            val delayMs = 16L
+            for (i in 1..frames) {
+                val t = i / frames.toFloat()
+                previewAnimProgress = 1f - (1f - t) * (1f - t)
+                delay(delayMs)
+            }
+            previewAnimProgress = 1f
+        }
+    }
 
     val cropWallpaperLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -161,23 +179,47 @@ fun MainScreen() {
         }
     }
 
-    val homePreviewBitmap = remember(displayArt, homeRestoreArt, previewShowingRestore, homeConfig) {
+    val homePreviewBitmap = remember(
+        displayArt,
+        homeRestoreArt,
+        previewShowingRestore,
+        homeConfig,
+        previewAnimProgress
+    ) {
+        val mode = if (previewShowingRestore) homeConfig.restoreEffect else homeConfig.applyEffect
+        val previous = if (previewShowingRestore) displayArt else homeRestoreArt
         renderScreenPreview(
             art = displayArt,
             restore = homeRestoreArt,
             isRestore = previewShowingRestore,
-            config = homeConfig
+            config = homeConfig,
+            progress = previewAnimProgress,
+            mode = mode,
+            previous = previous
         )
     }
 
-    val lockPreviewBitmap = remember(displayArt, lockRestoreArt, homeRestoreArt, previewShowingRestore, lockConfig, separateScreens) {
+    val lockPreviewBitmap = remember(
+        displayArt,
+        lockRestoreArt,
+        homeRestoreArt,
+        previewShowingRestore,
+        lockConfig,
+        separateScreens,
+        previewAnimProgress
+    ) {
         val effectiveLockRestore = if (separateScreens) (lockRestoreArt ?: homeRestoreArt) else homeRestoreArt
         val effectiveLockConfig = if (separateScreens) lockConfig else homeConfig
+        val mode = if (previewShowingRestore) effectiveLockConfig.restoreEffect else effectiveLockConfig.applyEffect
+        val previous = if (previewShowingRestore) displayArt else effectiveLockRestore
         renderScreenPreview(
             art = displayArt,
             restore = effectiveLockRestore,
             isRestore = previewShowingRestore,
-            config = effectiveLockConfig
+            config = effectiveLockConfig,
+            progress = previewAnimProgress,
+            mode = mode,
+            previous = previous
         )
     }
 
@@ -258,7 +300,7 @@ fun MainScreen() {
                         }
 
                         FilledTonalButton(
-                            onClick = { previewShowingRestore = !previewShowingRestore },
+                            onClick = { playPreviewTransition(!previewShowingRestore) },
                             shape = RoundedCornerShape(12.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
@@ -654,13 +696,21 @@ fun MainScreen() {
 
             Button(
                 onClick = {
-                    val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
-                        putExtra(
-                            WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
-                            ComponentName(context, AlbumArtWallpaperService::class.java)
-                        )
+                    try {
+                        val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+                            putExtra(
+                                WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                                ComponentName(context, AlbumArtWallpaperService::class.java)
+                            )
+                        }
+                        context.startActivity(intent)
+                    } catch (_: Exception) {
+                        try {
+                            val fallback = Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER)
+                            context.startActivity(fallback)
+                        } catch (_: Exception) {
+                        }
                     }
-                    context.startActivity(intent)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -692,7 +742,10 @@ fun renderScreenPreview(
     art: Bitmap?,
     restore: Bitmap?,
     isRestore: Boolean,
-    config: ScreenConfig
+    config: ScreenConfig,
+    progress: Float = 1f,
+    mode: Int = 0,
+    previous: Bitmap? = null
 ): Bitmap {
     val pw = 280
     val ph = 600
@@ -706,8 +759,9 @@ fun renderScreenPreview(
         restoreBitmap = restore,
         isRestoreActive = isRestore,
         config = config,
-        transitionProgress = 1f,
-        transitionMode = 0
+        transitionProgress = progress,
+        transitionMode = mode,
+        previousBitmap = previous
     )
     return bmp
 }

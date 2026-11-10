@@ -28,55 +28,65 @@ object WallpaperRenderer {
         isRestoreActive: Boolean,
         config: ScreenConfig,
         transitionProgress: Float = 1f,
-        transitionMode: Int = 0
+        transitionMode: Int = 0,
+        previousBitmap: Bitmap? = null
     ) {
         if (width <= 0 || height <= 0) return
 
-        val activeArt = if (isRestoreActive) restoreBitmap else artBitmap
+        val targetArt = if (isRestoreActive) restoreBitmap else artBitmap
 
-        if (activeArt == null) {
+        if (targetArt == null && previousBitmap == null) {
             drawFallbackBackground(canvas, width, height)
             return
         }
 
         val progress = transitionProgress.coerceIn(0f, 1f)
 
-        canvas.save()
-
-        when (transitionMode) {
-            ScreenConfig.TRANSITION_ZOOM -> {
-                val scale = 1.15f - (0.15f * progress)
-                canvas.scale(scale, scale, width / 2f, height / 2f)
-            }
-            ScreenConfig.TRANSITION_SLIDE_UP -> {
-                val offsetY = (1f - progress) * (height * 0.16f)
-                canvas.translate(0f, offsetY)
-            }
-            ScreenConfig.TRANSITION_SLIDE_DOWN -> {
-                val offsetY = -(1f - progress) * (height * 0.16f)
-                canvas.translate(0f, offsetY)
-            }
-            ScreenConfig.TRANSITION_RADIAL -> {
-                val scale = 0.82f + (0.18f * progress)
-                canvas.scale(scale, scale, width / 2f, height / 2f)
-            }
-            else -> {
-            }
+        if (progress < 1f && previousBitmap != null && !previousBitmap.isRecycled) {
+            drawFullBleed(canvas, previousBitmap, width, height, 1f)
+        } else if (targetArt == null) {
+            drawFallbackBackground(canvas, width, height)
+            return
         }
 
-        if (isRestoreActive) {
-            drawFullBleed(canvas, activeArt, width, height, progress)
-        } else {
-            val effectiveConfig = if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
-                val extraBlur = ((1f - progress) * 50).toInt()
-                config.copy(blurPercent = (config.blurPercent + extraBlur).coerceIn(1, 100))
+        if (targetArt != null && !targetArt.isRecycled) {
+            canvas.save()
+
+            when (transitionMode) {
+                ScreenConfig.TRANSITION_ZOOM -> {
+                    val scale = 1.15f - (0.15f * progress)
+                    canvas.scale(scale, scale, width / 2f, height / 2f)
+                }
+                ScreenConfig.TRANSITION_SLIDE_UP -> {
+                    val offsetY = (1f - progress) * (height * 0.16f)
+                    canvas.translate(0f, offsetY)
+                }
+                ScreenConfig.TRANSITION_SLIDE_DOWN -> {
+                    val offsetY = -(1f - progress) * (height * 0.16f)
+                    canvas.translate(0f, offsetY)
+                }
+                ScreenConfig.TRANSITION_RADIAL -> {
+                    val scale = 0.82f + (0.18f * progress)
+                    canvas.scale(scale, scale, width / 2f, height / 2f)
+                }
+                else -> {
+                }
+            }
+
+            if (isRestoreActive) {
+                drawFullBleed(canvas, targetArt, width, height, progress)
             } else {
-                config
+                val effectiveConfig = if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
+                    val extraBlur = ((1f - progress) * 50).toInt()
+                    config.copy(blurPercent = (config.blurPercent + extraBlur).coerceIn(1, 100))
+                } else {
+                    config
+                }
+                drawBlur(canvas, targetArt, width, height, effectiveConfig, progress)
             }
-            drawBlur(canvas, activeArt, width, height, effectiveConfig, progress)
-        }
 
-        canvas.restore()
+            canvas.restore()
+        }
 
         applyDimming(canvas, width, height, config.dimPercent)
     }
@@ -93,6 +103,7 @@ object WallpaperRenderer {
         targetHeight: Int,
         progress: Float
     ) {
+        if (src.isRecycled) return
         val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
         bitmapPaint.alpha = alpha
 
@@ -117,8 +128,10 @@ object WallpaperRenderer {
         config: ScreenConfig,
         progress: Float
     ) {
+        if (src.isRecycled) return
         val effectiveBlur = if (config.blurPercent > 0) config.blurPercent else 50
         val blurred = getNormalBlur(src, effectiveBlur)
+        if (blurred.isRecycled) return
 
         val scale = max(targetWidth.toFloat() / blurred.width, targetHeight.toFloat() / blurred.height)
         val scaledW = scale * blurred.width
@@ -144,7 +157,7 @@ object WallpaperRenderer {
     }
 
     fun getNormalBlur(source: Bitmap, blurPercent: Int): Bitmap {
-        if (blurPercent <= 0) return source
+        if (blurPercent <= 0 || source.isRecycled) return source
         val key = System.identityHashCode(source)
         val cached = cachedBlurredBitmap
         if (cached != null && cachedSourceKey == key && cachedBlurPercent == blurPercent && !cached.isRecycled) {
@@ -169,7 +182,6 @@ object WallpaperRenderer {
         boxBlur(pixels, w, h, radius)
         output.setPixels(pixels, 0, w, 0, 0, w, h)
 
-        cachedBlurredBitmap?.recycle()
         cachedBlurredBitmap = output
         cachedSourceKey = key
         cachedBlurPercent = blurPercent
