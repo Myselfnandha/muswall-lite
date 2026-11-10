@@ -214,6 +214,9 @@ fun MainScreen() {
         val mode = if (previewShowingRestore) localHomeConfig.restoreEffect else localHomeConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else homeRestoreArt
         val blurBitmap = if (previewShowingRestore) null else (if (localHomeConfig.blurPercent == homeConfig.blurPercent) preparedHomeBlur else null) ?: displayArt
+        val restoreBlurBitmap = if (previewShowingRestore && localHomeConfig.applyEffectsToRestore && homeRestoreArt != null) {
+            WallpaperRenderer.getNormalBlur(homeRestoreArt!!, localHomeConfig.blurPercent)
+        } else null
         renderScreenPreview(
             art = displayArt,
             restore = homeRestoreArt,
@@ -222,7 +225,8 @@ fun MainScreen() {
             progress = previewAnimProgress,
             mode = mode,
             previous = previous,
-            preparedBlur = blurBitmap
+            preparedBlur = blurBitmap,
+            preparedRestoreBlur = restoreBlurBitmap
         )
     }
 
@@ -241,6 +245,9 @@ fun MainScreen() {
         val mode = if (previewShowingRestore) effectiveLockConfig.restoreEffect else effectiveLockConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else effectiveLockRestore
         val blurBitmap = if (previewShowingRestore) null else (if (effectiveLockConfig.blurPercent == lockConfig.blurPercent) preparedLockBlur else null) ?: displayArt
+        val restoreBlurBitmap = if (previewShowingRestore && effectiveLockConfig.applyEffectsToRestore && effectiveLockRestore != null) {
+            WallpaperRenderer.getNormalBlur(effectiveLockRestore, effectiveLockConfig.blurPercent)
+        } else null
         renderScreenPreview(
             art = displayArt,
             restore = effectiveLockRestore,
@@ -249,7 +256,8 @@ fun MainScreen() {
             progress = previewAnimProgress,
             mode = mode,
             previous = previous,
-            preparedBlur = blurBitmap
+            preparedBlur = blurBitmap,
+            preparedRestoreBlur = restoreBlurBitmap
         )
     }
 
@@ -639,6 +647,32 @@ fun MainScreen() {
                     }
 
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF20202E))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Apply effects to Restore", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(
+                                text = "Apply the same blur and effects to the default restore wallpaper",
+                                fontSize = 11.sp,
+                                color = Color.LightGray
+                            )
+                        }
+                        Switch(
+                            checked = currentConfig.applyEffectsToRestore,
+                            onCheckedChange = {
+                                updateCurrentConfig(currentConfig.copy(applyEffectsToRestore = it))
+                            },
+                            modifier = Modifier.scale(0.85f)
+                        )
+                    }
+
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -870,7 +904,8 @@ fun renderScreenPreview(
     progress: Float = 1f,
     mode: Int = 0,
     previous: Bitmap? = null,
-    preparedBlur: Bitmap? = null
+    preparedBlur: Bitmap? = null,
+    preparedRestoreBlur: Bitmap? = null
 ): Bitmap {
     val pw = 280
     val ph = 600
@@ -887,7 +922,8 @@ fun renderScreenPreview(
         transitionProgress = progress,
         transitionMode = mode,
         previousBitmap = previous,
-        preparedBlur = preparedBlur
+        preparedBlur = preparedBlur,
+        preparedRestoreBlur = preparedRestoreBlur
     )
     return bmp
 }

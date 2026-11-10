@@ -30,7 +30,8 @@ object WallpaperRenderer {
         transitionProgress: Float = 1f,
         transitionMode: Int = 0,
         previousBitmap: Bitmap? = null,
-        preparedBlur: Bitmap? = null
+        preparedBlur: Bitmap? = null,
+        preparedRestoreBlur: Bitmap? = null
     ) {
         if (width <= 0 || height <= 0) return
 
@@ -75,7 +76,12 @@ object WallpaperRenderer {
             }
 
             if (isRestoreActive) {
-                drawFullBleed(canvas, targetArt, width, height, progress)
+                if (config.applyEffectsToRestore) {
+                    val blur = preparedRestoreBlur ?: getNormalBlur(targetArt, config.blurPercent)
+                    drawFullBleed(canvas, blur, width, height, progress)
+                } else {
+                    drawFullBleed(canvas, targetArt, width, height, progress)
+                }
             } else {
                 if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
                     val blur = preparedBlur ?: getNormalBlur(targetArt, config.blurPercent)

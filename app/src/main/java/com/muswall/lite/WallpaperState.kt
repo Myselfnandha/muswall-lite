@@ -21,7 +21,8 @@ data class ScreenConfig(
     val dimPercent: Int = 20,
     val applyEffect: Int = TRANSITION_FADE,
     val restoreEffect: Int = TRANSITION_FADE,
-    val restoreDelaySeconds: Int = 30
+    val restoreDelaySeconds: Int = 30,
+    val applyEffectsToRestore: Boolean = false
 ) {
     companion object {
         const val TRANSITION_FADE = 0
@@ -57,6 +58,12 @@ object WallpaperState {
 
     private val _preparedLockBlur = MutableStateFlow<Bitmap?>(null)
     val preparedLockBlur = _preparedLockBlur.asStateFlow()
+
+    private val _preparedHomeRestoreBlur = MutableStateFlow<Bitmap?>(null)
+    val preparedHomeRestoreBlur = _preparedHomeRestoreBlur.asStateFlow()
+
+    private val _preparedLockRestoreBlur = MutableStateFlow<Bitmap?>(null)
+    val preparedLockRestoreBlur = _preparedLockRestoreBlur.asStateFlow()
 
     private val _isRestoreActive = MutableStateFlow(true)
     val isRestoreActive = _isRestoreActive.asStateFlow()
@@ -158,6 +165,14 @@ object WallpaperState {
         }
     }
 
+    fun getPreparedRestoreBlur(isLockScreen: Boolean): Bitmap? {
+        return if (_separateScreens.value && isLockScreen) {
+            _preparedLockRestoreBlur.value ?: _preparedHomeRestoreBlur.value
+        } else {
+            _preparedHomeRestoreBlur.value
+        }
+    }
+
     fun updateHomeConfig(context: Context, config: ScreenConfig) {
         _homeConfig.value = config
         saveConfig(context, "home", config)
@@ -218,15 +233,31 @@ object WallpaperState {
     private fun schedulePrecomputeBlur() {
         precomputeJob?.cancel()
         precomputeJob = scope.launch(Dispatchers.Default) {
-            val art = _currentArt.value ?: return@launch
+            val art = _currentArt.value
             val homeBlurPct = _homeConfig.value.blurPercent
             val lockBlurPct = _lockConfig.value.blurPercent
 
-            _preparedHomeBlur.value = WallpaperRenderer.getNormalBlur(art, homeBlurPct)
-            if (_separateScreens.value && lockBlurPct != homeBlurPct) {
-                _preparedLockBlur.value = WallpaperRenderer.getNormalBlur(art, lockBlurPct)
+            if (art != null) {
+                _preparedHomeBlur.value = WallpaperRenderer.getNormalBlur(art, homeBlurPct)
+                if (_separateScreens.value && lockBlurPct != homeBlurPct) {
+                    _preparedLockBlur.value = WallpaperRenderer.getNormalBlur(art, lockBlurPct)
+                } else {
+                    _preparedLockBlur.value = _preparedHomeBlur.value
+                }
+            }
+
+            val homeRestore = _homeRestoreArt.value
+            if (homeRestore != null && _homeConfig.value.applyEffectsToRestore) {
+                _preparedHomeRestoreBlur.value = WallpaperRenderer.getNormalBlur(homeRestore, homeBlurPct)
             } else {
-                _preparedLockBlur.value = _preparedHomeBlur.value
+                _preparedHomeRestoreBlur.value = null
+            }
+
+            val lockRestore = _lockRestoreArt.value ?: homeRestore
+            if (lockRestore != null && _lockConfig.value.applyEffectsToRestore) {
+                _preparedLockRestoreBlur.value = WallpaperRenderer.getNormalBlur(lockRestore, lockBlurPct)
+            } else {
+                _preparedLockRestoreBlur.value = null
             }
         }
     }
@@ -244,7 +275,8 @@ object WallpaperState {
             dimPercent = prefs.getInt("${prefix}_dim_percent", 20),
             applyEffect = prefs.getInt("${prefix}_apply_effect", ScreenConfig.TRANSITION_FADE),
             restoreEffect = prefs.getInt("${prefix}_restore_effect", ScreenConfig.TRANSITION_FADE),
-            restoreDelaySeconds = prefs.getInt("${prefix}_restore_delay", 30)
+            restoreDelaySeconds = prefs.getInt("${prefix}_restore_delay", 30),
+            applyEffectsToRestore = prefs.getBoolean("${prefix}_apply_effects_to_restore", false)
         )
     }
 
@@ -255,6 +287,7 @@ object WallpaperState {
             putInt("${prefix}_apply_effect", config.applyEffect)
             putInt("${prefix}_restore_effect", config.restoreEffect)
             putInt("${prefix}_restore_delay", config.restoreDelaySeconds)
+            putBoolean("${prefix}_apply_effects_to_restore", config.applyEffectsToRestore)
             apply()
         }
     }
@@ -295,6 +328,8 @@ object WallpaperState {
 
             if (_homeRestoreArt.value == null && _lockRestoreArt.value == null) {
                 captureSystemDefaultWallpaper(context)
+            } else {
+                schedulePrecomputeBlur()
             }
         }
     }

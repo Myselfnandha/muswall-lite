@@ -156,6 +156,22 @@ class AlbumArtWallpaperService : WallpaperService() {
             }
 
             scope.launch {
+                WallpaperState.preparedHomeRestoreBlur.collect {
+                    if (WallpaperState.isRestoreActive.value && !cachedIsLocked) {
+                        scheduleRender()
+                    }
+                }
+            }
+
+            scope.launch {
+                WallpaperState.preparedLockRestoreBlur.collect {
+                    if (WallpaperState.isRestoreActive.value && cachedIsLocked) {
+                        scheduleRender()
+                    }
+                }
+            }
+
+            scope.launch {
                 WallpaperState.settingsChanged.collect {
                     scheduleRender()
                 }
@@ -299,6 +315,7 @@ class AlbumArtWallpaperService : WallpaperService() {
             val isRestoreActive = WallpaperState.isRestoreActive.value
             val config = WallpaperState.getEffectiveConfig(context, isLockScreen = cachedIsLocked)
             val preparedBlur = WallpaperState.getPreparedBlur(isLockScreen = cachedIsLocked)
+            val preparedRestoreBlur = WallpaperState.getPreparedRestoreBlur(isLockScreen = cachedIsLocked)
 
             WallpaperRenderer.render(
                 canvas = canvas,
@@ -311,7 +328,8 @@ class AlbumArtWallpaperService : WallpaperService() {
                 transitionProgress = transitionProgress,
                 transitionMode = transitionMode,
                 previousBitmap = previousBitmap,
-                preparedBlur = preparedBlur
+                preparedBlur = preparedBlur,
+                preparedRestoreBlur = preparedRestoreBlur
             )
         }
     }
