@@ -16,11 +16,13 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -94,6 +96,19 @@ fun MainScreen() {
     val lockConfig by WallpaperState.lockConfig.collectAsState()
     val separateScreens by WallpaperState.separateScreens.collectAsState()
 
+    var localHomeConfig by remember(homeConfig) { mutableStateOf(homeConfig) }
+    var localLockConfig by remember(lockConfig) { mutableStateOf(lockConfig) }
+    var localSeparateScreens by remember(separateScreens) { mutableStateOf(separateScreens) }
+
+    val hasUnsavedChanges = (localHomeConfig != homeConfig || localLockConfig != lockConfig || localSeparateScreens != separateScreens)
+
+    fun applyAndSaveChanges() {
+        WallpaperState.updateHomeConfig(context, localHomeConfig)
+        WallpaperState.updateLockConfig(context, localLockConfig)
+        WallpaperState.setSeparateScreens(context, localSeparateScreens)
+        Toast.makeText(context, "Changes saved and applied!", Toast.LENGTH_SHORT).show()
+    }
+
     val currentArt by WallpaperState.currentArt.collectAsState()
     val homeRestoreArt by WallpaperState.homeRestoreArt.collectAsState()
     val lockRestoreArt by WallpaperState.lockRestoreArt.collectAsState()
@@ -105,6 +120,10 @@ fun MainScreen() {
     var activeTab by remember { mutableIntStateOf(0) }
     var previewShowingRestore by remember { mutableStateOf(false) }
     var previewAnimProgress by remember { mutableFloatStateOf(1f) }
+
+    if (!localSeparateScreens && activeTab == 1) {
+        activeTab = 0
+    }
 
     fun playPreviewTransition(targetRestoreState: Boolean) {
         coroutineScope.launch {
@@ -129,7 +148,7 @@ fun MainScreen() {
     fun launchSystemDimensionSetter(sourceUri: Uri) {
         val bmp = loadSoftwareBitmapFromUri(context, sourceUri)
         if (bmp != null) {
-            if (separateScreens && activeTab == 1) {
+            if (localSeparateScreens && activeTab == 1) {
                 WallpaperState.setLockRestoreBitmap(context, bmp)
             } else {
                 WallpaperState.setUnifiedRestoreBitmap(context, bmp)
@@ -174,13 +193,13 @@ fun MainScreen() {
     val sampleArt = remember { generateSampleArtwork() }
     val displayArt = currentArt ?: sampleArt
 
-    val currentConfig = if (separateScreens && activeTab == 1) lockConfig else homeConfig
+    val currentConfig = if (localSeparateScreens && activeTab == 1) localLockConfig else localHomeConfig
 
     fun updateCurrentConfig(newConfig: ScreenConfig) {
-        if (separateScreens && activeTab == 1) {
-            WallpaperState.updateLockConfig(context, newConfig)
+        if (localSeparateScreens && activeTab == 1) {
+            localLockConfig = newConfig
         } else {
-            WallpaperState.updateHomeConfig(context, newConfig)
+            localHomeConfig = newConfig
         }
     }
 
@@ -188,18 +207,18 @@ fun MainScreen() {
         displayArt,
         homeRestoreArt,
         previewShowingRestore,
-        homeConfig,
+        localHomeConfig,
         previewAnimProgress,
         preparedHomeBlur
     ) {
-        val mode = if (previewShowingRestore) homeConfig.restoreEffect else homeConfig.applyEffect
+        val mode = if (previewShowingRestore) localHomeConfig.restoreEffect else localHomeConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else homeRestoreArt
-        val blurBitmap = if (previewShowingRestore) null else (preparedHomeBlur ?: displayArt)
+        val blurBitmap = if (previewShowingRestore) null else (if (localHomeConfig.blurPercent == homeConfig.blurPercent) preparedHomeBlur else null) ?: displayArt
         renderScreenPreview(
             art = displayArt,
             restore = homeRestoreArt,
             isRestore = previewShowingRestore,
-            config = homeConfig,
+            config = localHomeConfig,
             progress = previewAnimProgress,
             mode = mode,
             previous = previous,
@@ -212,16 +231,16 @@ fun MainScreen() {
         lockRestoreArt,
         homeRestoreArt,
         previewShowingRestore,
-        lockConfig,
-        separateScreens,
+        localLockConfig,
+        localSeparateScreens,
         previewAnimProgress,
         preparedLockBlur
     ) {
-        val effectiveLockRestore = if (separateScreens) (lockRestoreArt ?: homeRestoreArt) else homeRestoreArt
-        val effectiveLockConfig = if (separateScreens) lockConfig else homeConfig
+        val effectiveLockRestore = if (localSeparateScreens) (lockRestoreArt ?: homeRestoreArt) else homeRestoreArt
+        val effectiveLockConfig = if (localSeparateScreens) localLockConfig else localHomeConfig
         val mode = if (previewShowingRestore) effectiveLockConfig.restoreEffect else effectiveLockConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else effectiveLockRestore
-        val blurBitmap = if (previewShowingRestore) null else (preparedLockBlur ?: displayArt)
+        val blurBitmap = if (previewShowingRestore) null else (if (effectiveLockConfig.blurPercent == lockConfig.blurPercent) preparedLockBlur else null) ?: displayArt
         renderScreenPreview(
             art = displayArt,
             restore = effectiveLockRestore,
@@ -258,15 +277,28 @@ fun MainScreen() {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(end = 12.dp)
                     ) {
+                        if (hasUnsavedChanges) {
+                            Button(
+                                onClick = { applyAndSaveChanges() },
+                                shape = RoundedCornerShape(10.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Save", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+
                         Text(
-                            text = if (separateScreens) "Separate Screens" else "Linked",
+                            text = if (localSeparateScreens) "Separate" else "Linked",
                             fontSize = 12.sp,
-                            color = if (separateScreens) MaterialTheme.colorScheme.primary else Color.Gray
+                            color = if (localSeparateScreens) MaterialTheme.colorScheme.primary else Color.Gray
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Switch(
-                            checked = separateScreens,
-                            onCheckedChange = { WallpaperState.setSeparateScreens(context, it) },
+                            checked = localSeparateScreens,
+                            onCheckedChange = { localSeparateScreens = it },
                             modifier = Modifier.scale(0.8f)
                         )
                     }
@@ -438,7 +470,7 @@ fun MainScreen() {
                 }
             }
 
-            if (separateScreens) {
+            if (localSeparateScreens) {
                 TabRow(
                     selectedTabIndex = activeTab,
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -554,7 +586,7 @@ fun MainScreen() {
                             Text("Home Default", fontSize = 11.sp, color = Color.White)
                         }
 
-                        if (separateScreens) {
+                        if (localSeparateScreens) {
                             Column(
                                 modifier = Modifier.weight(1f),
                                 horizontalAlignment = Alignment.CenterHorizontally
@@ -612,7 +644,7 @@ fun MainScreen() {
                     ) {
                         Button(
                             onClick = {
-                                if (separateScreens && activeTab == 1) {
+                                if (localSeparateScreens && activeTab == 1) {
                                     lockPhotoPicker.launch(
                                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                     )
@@ -699,6 +731,87 @@ fun MainScreen() {
                                     onClick = { updateCurrentConfig(currentConfig.copy(restoreEffect = tr)) },
                                     label = { Text(label, fontSize = 11.sp) }
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (hasUnsavedChanges) Color(0xFF1B2230) else MaterialTheme.colorScheme.surface
+                ),
+                border = if (hasUnsavedChanges) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (hasUnsavedChanges) "Unsaved Modifications" else "Configuration Status",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = if (hasUnsavedChanges) MaterialTheme.colorScheme.primary else Color.White
+                        )
+                        if (hasUnsavedChanges) {
+                            Text(
+                                text = "● Pending Apply",
+                                color = Color(0xFFFFB74D),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else {
+                            Text(
+                                text = "✓ Synced",
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Button(
+                            onClick = { applyAndSaveChanges() },
+                            enabled = hasUnsavedChanges,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                disabledContainerColor = Color(0xFF282836)
+                            )
+                        ) {
+                            Text(
+                                text = if (hasUnsavedChanges) "Save & Apply Changes" else "All Changes Saved",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (hasUnsavedChanges) Color.Black else Color.Gray
+                            )
+                        }
+
+                        if (hasUnsavedChanges) {
+                            OutlinedButton(
+                                onClick = {
+                                    localHomeConfig = homeConfig
+                                    localLockConfig = lockConfig
+                                    localSeparateScreens = separateScreens
+                                },
+                                modifier = Modifier.height(50.dp),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Text("Discard", fontSize = 13.sp, color = Color.White)
                             }
                         }
                     }
