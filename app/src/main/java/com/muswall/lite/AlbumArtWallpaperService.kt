@@ -83,11 +83,12 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             transitionJob?.cancel()
             transitionJob = scope.launch {
-                val frames = 16
-                val delayMs = 18L
+                val frames = 18
+                val delayMs = 16L
                 transitionMode = config.applyEffect
                 for (i in 1..frames) {
-                    transitionProgress = i / frames.toFloat()
+                    val t = i / frames.toFloat()
+                    transitionProgress = 1f - (1f - t) * (1f - t)
                     renderIfVisible()
                     delay(delayMs)
                 }
@@ -108,11 +109,12 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             transitionJob?.cancel()
             transitionJob = scope.launch {
-                val frames = 16
-                val delayMs = 18L
+                val frames = 18
+                val delayMs = 16L
                 transitionMode = config.restoreEffect
                 for (i in 1..frames) {
-                    transitionProgress = i / frames.toFloat()
+                    val t = i / frames.toFloat()
+                    transitionProgress = 1f - (1f - t) * (1f - t)
                     renderIfVisible()
                     delay(delayMs)
                 }

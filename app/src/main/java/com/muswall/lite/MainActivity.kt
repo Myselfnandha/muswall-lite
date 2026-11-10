@@ -43,6 +43,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
+import java.io.File
+import java.io.FileOutputStream
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,6 +56,11 @@ class MainActivity : ComponentActivity() {
                 MainScreen()
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        WallpaperState.captureSystemDefaultWallpaper(applicationContext)
     }
 }
 
@@ -72,7 +80,7 @@ fun MusWallLiteTheme(content: @Composable () -> Unit) {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MainScreen() {
     val context = LocalContext.current
@@ -90,14 +98,33 @@ fun MainScreen() {
     var activeTab by remember { mutableIntStateOf(0) }
     var previewShowingRestore by remember { mutableStateOf(false) }
 
-    val homePhotoPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val bmp = loadSoftwareBitmapFromUri(context, uri)
+    val cropWallpaperLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        WallpaperState.captureSystemDefaultWallpaper(context)
+    }
+
+    fun launchSystemDimensionSetter(sourceUri: Uri) {
+        try {
+            val cacheFile = File(context.cacheDir, "wallpaper_crop_input.png")
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                FileOutputStream(cacheFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            val contentUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                cacheFile
+            )
+            val cropIntent = WallpaperManager.getInstance(context).getCropAndSetWallpaperIntent(contentUri)
+            cropIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            cropWallpaperLauncher.launch(cropIntent)
+        } catch (_: Exception) {
+            val bmp = loadSoftwareBitmapFromUri(context, sourceUri)
             if (bmp != null) {
-                if (separateScreens) {
-                    WallpaperState.setHomeRestoreBitmap(context, bmp)
+                if (separateScreens && activeTab == 1) {
+                    WallpaperState.setLockRestoreBitmap(context, bmp)
                 } else {
                     WallpaperState.setUnifiedRestoreBitmap(context, bmp)
                 }
@@ -105,14 +132,19 @@ fun MainScreen() {
         }
     }
 
+    val homePhotoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            launchSystemDimensionSetter(uri)
+        }
+    }
+
     val lockPhotoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            val bmp = loadSoftwareBitmapFromUri(context, uri)
-            if (bmp != null) {
-                WallpaperState.setLockRestoreBitmap(context, bmp)
-            }
+            launchSystemDimensionSetter(uri)
         }
     }
 
@@ -146,6 +178,18 @@ fun MainScreen() {
             restore = effectiveLockRestore,
             isRestore = previewShowingRestore,
             config = effectiveLockConfig
+        )
+    }
+
+    val transitionsList = remember {
+        listOf(
+            "Crossfade" to ScreenConfig.TRANSITION_FADE,
+            "Zoom & Fade" to ScreenConfig.TRANSITION_ZOOM,
+            "Slide Up" to ScreenConfig.TRANSITION_SLIDE_UP,
+            "Slide Down" to ScreenConfig.TRANSITION_SLIDE_DOWN,
+            "Radial Expand" to ScreenConfig.TRANSITION_RADIAL,
+            "Blur Dissolve" to ScreenConfig.TRANSITION_BLUR_DISSOLVE,
+            "Instant" to ScreenConfig.TRANSITION_NONE
         )
     }
 
@@ -422,7 +466,7 @@ fun MainScreen() {
                 ) {
                     Text("Restore Wallpaper (Default Wallpaper)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text(
-                        text = "When music pauses or stops, the wallpaper automatically restores to your default phone wallpaper.",
+                        text = "Selecting an image opens the system wallpaper setter so you can position, zoom, and set dimensions exactly as you prefer.",
                         fontSize = 12.sp,
                         color = Color.LightGray
                     )
@@ -513,6 +557,25 @@ fun MainScreen() {
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        Button(
+                            onClick = {
+                                if (separateScreens && activeTab == 1) {
+                                    lockPhotoPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                } else {
+                                    homePhotoPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("Pick & Set Dimensions", fontSize = 11.sp, color = Color.Black, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                        }
+
                         OutlinedButton(
                             onClick = {
                                 WallpaperState.captureSystemDefaultWallpaper(context)
@@ -520,53 +583,22 @@ fun MainScreen() {
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Capture System Wallpaper", fontSize = 11.sp, textAlign = TextAlign.Center)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                try {
-                                    val intent = Intent(Intent.ACTION_SET_WALLPAPER)
-                                    context.startActivity(Intent.createChooser(intent, "Select Wallpaper"))
-                                } catch (_: Exception) {
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text("System Settings", fontSize = 11.sp, textAlign = TextAlign.Center)
+                            Text("Capture System", fontSize = 11.sp, textAlign = TextAlign.Center)
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                homePhotoPicker.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Text(if (separateScreens) "Pick Home Wallpaper" else "Pick Custom Wallpaper", fontSize = 11.sp)
-                        }
-
-                        if (separateScreens) {
-                            OutlinedButton(
-                                onClick = {
-                                    lockPhotoPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
-                                },
-                                modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("Pick Lock Wallpaper", fontSize = 11.sp)
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_SET_WALLPAPER)
+                                context.startActivity(Intent.createChooser(intent, "System Wallpaper Setter"))
+                            } catch (_: Exception) {
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Open System Wallpaper Setter Screen", fontSize = 12.sp, textAlign = TextAlign.Center)
                     }
                 }
             }
@@ -578,49 +610,41 @@ fun MainScreen() {
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Text("Apply & Restore Transitions", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Apply & Restore Transition Effects", fontWeight = FontWeight.Bold, fontSize = 15.sp)
 
                     Column {
-                        Text("Wallpaper Apply Effect (When music starts):", fontSize = 13.sp)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
+                        Text("Wallpaper Apply Transition (When music starts):", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            listOf(
-                                "Crossfade" to ScreenConfig.TRANSITION_FADE,
-                                "Zoom & Fade" to ScreenConfig.TRANSITION_ZOOM,
-                                "Instant" to ScreenConfig.TRANSITION_NONE
-                            ).forEach { (label, tr) ->
+                            transitionsList.forEach { (label, tr) ->
                                 FilterChip(
                                     selected = currentConfig.applyEffect == tr,
                                     onClick = { updateCurrentConfig(currentConfig.copy(applyEffect = tr)) },
-                                    label = { Text(label, fontSize = 11.sp) },
-                                    modifier = Modifier.weight(1f)
+                                    label = { Text(label, fontSize = 11.sp) }
                                 )
                             }
                         }
                     }
 
                     Column {
-                        Text("Restore Wallpaper Effect (When music stops):", fontSize = 13.sp)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
+                        Text("Restore Wallpaper Transition (When music stops):", fontSize = 13.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            listOf(
-                                "Crossfade" to ScreenConfig.TRANSITION_FADE,
-                                "Fade Out" to ScreenConfig.TRANSITION_ZOOM,
-                                "Instant" to ScreenConfig.TRANSITION_NONE
-                            ).forEach { (label, tr) ->
+                            transitionsList.forEach { (label, tr) ->
                                 FilterChip(
                                     selected = currentConfig.restoreEffect == tr,
                                     onClick = { updateCurrentConfig(currentConfig.copy(restoreEffect = tr)) },
-                                    label = { Text(label, fontSize = 11.sp) },
-                                    modifier = Modifier.weight(1f)
+                                    label = { Text(label, fontSize = 11.sp) }
                                 )
                             }
                         }

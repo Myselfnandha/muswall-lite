@@ -39,11 +39,44 @@ object WallpaperRenderer {
             return
         }
 
-        if (isRestoreActive) {
-            drawFullBleed(canvas, activeArt, width, height, transitionProgress)
-        } else {
-            drawBlur(canvas, activeArt, width, height, config, transitionProgress)
+        val progress = transitionProgress.coerceIn(0f, 1f)
+
+        canvas.save()
+
+        when (transitionMode) {
+            ScreenConfig.TRANSITION_ZOOM -> {
+                val scale = 1.15f - (0.15f * progress)
+                canvas.scale(scale, scale, width / 2f, height / 2f)
+            }
+            ScreenConfig.TRANSITION_SLIDE_UP -> {
+                val offsetY = (1f - progress) * (height * 0.16f)
+                canvas.translate(0f, offsetY)
+            }
+            ScreenConfig.TRANSITION_SLIDE_DOWN -> {
+                val offsetY = -(1f - progress) * (height * 0.16f)
+                canvas.translate(0f, offsetY)
+            }
+            ScreenConfig.TRANSITION_RADIAL -> {
+                val scale = 0.82f + (0.18f * progress)
+                canvas.scale(scale, scale, width / 2f, height / 2f)
+            }
+            else -> {
+            }
         }
+
+        if (isRestoreActive) {
+            drawFullBleed(canvas, activeArt, width, height, progress)
+        } else {
+            val effectiveConfig = if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
+                val extraBlur = ((1f - progress) * 50).toInt()
+                config.copy(blurPercent = (config.blurPercent + extraBlur).coerceIn(1, 100))
+            } else {
+                config
+            }
+            drawBlur(canvas, activeArt, width, height, effectiveConfig, progress)
+        }
+
+        canvas.restore()
 
         applyDimming(canvas, width, height, config.dimPercent)
     }

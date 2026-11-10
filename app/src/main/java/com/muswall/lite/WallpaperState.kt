@@ -26,7 +26,11 @@ data class ScreenConfig(
     companion object {
         const val TRANSITION_FADE = 0
         const val TRANSITION_ZOOM = 1
-        const val TRANSITION_NONE = 2
+        const val TRANSITION_SLIDE_UP = 2
+        const val TRANSITION_SLIDE_DOWN = 3
+        const val TRANSITION_RADIAL = 4
+        const val TRANSITION_BLUR_DISSOLVE = 5
+        const val TRANSITION_NONE = 6
     }
 }
 
