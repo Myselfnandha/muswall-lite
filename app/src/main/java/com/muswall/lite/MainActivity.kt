@@ -62,7 +62,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        WallpaperState.captureSystemDefaultWallpaper(applicationContext)
+        if (WallpaperState.homeRestoreArt.value == null) {
+            WallpaperState.captureSystemDefaultWallpaper(applicationContext)
+        }
     }
 }
 
@@ -95,6 +97,8 @@ fun MainScreen() {
     val currentArt by WallpaperState.currentArt.collectAsState()
     val homeRestoreArt by WallpaperState.homeRestoreArt.collectAsState()
     val lockRestoreArt by WallpaperState.lockRestoreArt.collectAsState()
+    val preparedHomeBlur by WallpaperState.preparedHomeBlur.collectAsState()
+    val preparedLockBlur by WallpaperState.preparedLockBlur.collectAsState()
     val isPlaying by WallpaperState.isPlaying.collectAsState()
     val trackTitle by WallpaperState.trackTitle.collectAsState()
 
@@ -184,10 +188,12 @@ fun MainScreen() {
         homeRestoreArt,
         previewShowingRestore,
         homeConfig,
-        previewAnimProgress
+        previewAnimProgress,
+        preparedHomeBlur
     ) {
         val mode = if (previewShowingRestore) homeConfig.restoreEffect else homeConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else homeRestoreArt
+        val blurBitmap = if (previewShowingRestore) null else (preparedHomeBlur ?: displayArt)
         renderScreenPreview(
             art = displayArt,
             restore = homeRestoreArt,
@@ -195,7 +201,8 @@ fun MainScreen() {
             config = homeConfig,
             progress = previewAnimProgress,
             mode = mode,
-            previous = previous
+            previous = previous,
+            preparedBlur = blurBitmap
         )
     }
 
@@ -206,12 +213,14 @@ fun MainScreen() {
         previewShowingRestore,
         lockConfig,
         separateScreens,
-        previewAnimProgress
+        previewAnimProgress,
+        preparedLockBlur
     ) {
         val effectiveLockRestore = if (separateScreens) (lockRestoreArt ?: homeRestoreArt) else homeRestoreArt
         val effectiveLockConfig = if (separateScreens) lockConfig else homeConfig
         val mode = if (previewShowingRestore) effectiveLockConfig.restoreEffect else effectiveLockConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else effectiveLockRestore
+        val blurBitmap = if (previewShowingRestore) null else (preparedLockBlur ?: displayArt)
         renderScreenPreview(
             art = displayArt,
             restore = effectiveLockRestore,
@@ -219,7 +228,8 @@ fun MainScreen() {
             config = effectiveLockConfig,
             progress = previewAnimProgress,
             mode = mode,
-            previous = previous
+            previous = previous,
+            preparedBlur = blurBitmap
         )
     }
 
@@ -745,7 +755,8 @@ fun renderScreenPreview(
     config: ScreenConfig,
     progress: Float = 1f,
     mode: Int = 0,
-    previous: Bitmap? = null
+    previous: Bitmap? = null,
+    preparedBlur: Bitmap? = null
 ): Bitmap {
     val pw = 280
     val ph = 600
@@ -761,7 +772,8 @@ fun renderScreenPreview(
         config = config,
         transitionProgress = progress,
         transitionMode = mode,
-        previousBitmap = previous
+        previousBitmap = previous,
+        preparedBlur = preparedBlur
     )
     return bmp
 }

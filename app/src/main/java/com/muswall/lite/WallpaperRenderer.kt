@@ -29,7 +29,8 @@ object WallpaperRenderer {
         config: ScreenConfig,
         transitionProgress: Float = 1f,
         transitionMode: Int = 0,
-        previousBitmap: Bitmap? = null
+        previousBitmap: Bitmap? = null,
+        preparedBlur: Bitmap? = null
     ) {
         if (width <= 0 || height <= 0) return
 
@@ -76,13 +77,15 @@ object WallpaperRenderer {
             if (isRestoreActive) {
                 drawFullBleed(canvas, targetArt, width, height, progress)
             } else {
-                val effectiveConfig = if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
+                if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
                     val extraBlur = ((1f - progress) * 50).toInt()
-                    config.copy(blurPercent = (config.blurPercent + extraBlur).coerceIn(1, 100))
+                    val effectiveConfig = config.copy(blurPercent = (config.blurPercent + extraBlur).coerceIn(1, 100))
+                    drawBlur(canvas, targetArt, width, height, effectiveConfig, progress)
+                } else if (preparedBlur != null && !preparedBlur.isRecycled) {
+                    drawFullBleed(canvas, preparedBlur, width, height, progress)
                 } else {
-                    config
+                    drawBlur(canvas, targetArt, width, height, config, progress)
                 }
-                drawBlur(canvas, targetArt, width, height, effectiveConfig, progress)
             }
 
             canvas.restore()

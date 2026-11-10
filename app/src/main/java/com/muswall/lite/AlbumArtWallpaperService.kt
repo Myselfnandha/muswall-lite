@@ -22,27 +22,35 @@ class AlbumArtWallpaperService : WallpaperService() {
     }
 
     inner class AlbumEngine : Engine() {
-        private val scope = CoroutineScope(Dispatchers.Main + Job())
+        private val scope = CoroutineScope(Dispatchers.Default + Job())
         private var isVisibleState = false
 
         private var surfaceWidth = 1080
         private var surfaceHeight = 2400
 
         private var transitionJob: Job? = null
+        private var renderJob: Job? = null
         private var transitionProgress = 1f
         private var transitionMode = ScreenConfig.TRANSITION_FADE
 
         private var previousBitmap: Bitmap? = null
         private var lastRenderedArt: Bitmap? = null
         private var lastRestoreState = true
+        private var cachedIsLocked = false
 
         private val screenReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
-                    Intent.ACTION_USER_PRESENT,
-                    Intent.ACTION_SCREEN_ON,
                     Intent.ACTION_SCREEN_OFF -> {
-                        renderIfVisible()
+                        cachedIsLocked = true
+                    }
+                    Intent.ACTION_USER_PRESENT -> {
+                        cachedIsLocked = false
+                        scheduleRender()
+                    }
+                    Intent.ACTION_SCREEN_ON -> {
+                        updateKeyguardState()
+                        scheduleRender()
                     }
                 }
             }
@@ -60,6 +68,7 @@ class AlbumArtWallpaperService : WallpaperService() {
             }
             registerReceiver(screenReceiver, filter)
 
+            updateKeyguardState()
             lastRestoreState = WallpaperState.isRestoreActive.value
             lastRenderedArt = WallpaperState.currentArt.value
 
@@ -67,12 +76,12 @@ class AlbumArtWallpaperService : WallpaperService() {
                 WallpaperState.currentArt.collect { newArt ->
                     val isRestored = WallpaperState.isRestoreActive.value
                     if (!isRestored && newArt != null && newArt !== lastRenderedArt) {
-                        previousBitmap = lastRenderedArt ?: WallpaperState.getRestoreArt(isPhoneLocked())
+                        previousBitmap = lastRenderedArt ?: WallpaperState.getRestoreArt(cachedIsLocked)
                         lastRenderedArt = newArt
                         triggerApplyTransition()
                     } else {
                         lastRenderedArt = newArt
-                        renderIfVisible()
+                        scheduleRender()
                     }
                 }
             }
@@ -82,7 +91,7 @@ class AlbumArtWallpaperService : WallpaperService() {
                     if (isRestored != lastRestoreState) {
                         lastRestoreState = isRestored
                         val currentArt = WallpaperState.currentArt.value
-                        val restoreArt = WallpaperState.getRestoreArt(isPhoneLocked())
+                        val restoreArt = WallpaperState.getRestoreArt(cachedIsLocked)
 
                         if (isRestored) {
                             previousBitmap = currentArt ?: restoreArt
@@ -97,7 +106,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.settingsChanged.collect {
-                    renderIfVisible()
+                    scheduleRender()
                 }
             }
         }
@@ -108,6 +117,7 @@ class AlbumArtWallpaperService : WallpaperService() {
             } catch (_: Exception) {
             }
             transitionJob?.cancel()
+            renderJob?.cancel()
             super.onDestroy()
         }
 
@@ -115,7 +125,8 @@ class AlbumArtWallpaperService : WallpaperService() {
             super.onVisibilityChanged(visible)
             isVisibleState = visible
             if (visible) {
-                renderIfVisible()
+                updateKeyguardState()
+                scheduleRender()
             }
         }
 
@@ -123,16 +134,25 @@ class AlbumArtWallpaperService : WallpaperService() {
             super.onSurfaceChanged(holder, format, width, height)
             surfaceWidth = width
             surfaceHeight = height
-            renderIfVisible()
+            scheduleRender()
+        }
+
+        private fun updateKeyguardState() {
+            scope.launch {
+                try {
+                    val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                    cachedIsLocked = km?.isKeyguardLocked ?: false
+                } catch (_: Exception) {
+                }
+            }
         }
 
         private fun triggerApplyTransition() {
             val context: Context = this@AlbumArtWallpaperService
-            val isLocked = isPhoneLocked()
-            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = isLocked)
+            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = cachedIsLocked)
             if (config.applyEffect == ScreenConfig.TRANSITION_NONE) {
                 transitionProgress = 1f
-                renderIfVisible()
+                scheduleRender()
                 return
             }
 
@@ -144,21 +164,20 @@ class AlbumArtWallpaperService : WallpaperService() {
                 for (i in 1..frames) {
                     val t = i / frames.toFloat()
                     transitionProgress = 1f - (1f - t) * (1f - t)
-                    renderIfVisible()
+                    renderDirect()
                     delay(delayMs)
                 }
                 transitionProgress = 1f
-                renderIfVisible()
+                renderDirect()
             }
         }
 
         private fun triggerRestoreTransition() {
             val context: Context = this@AlbumArtWallpaperService
-            val isLocked = isPhoneLocked()
-            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = isLocked)
+            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = cachedIsLocked)
             if (config.restoreEffect == ScreenConfig.TRANSITION_NONE) {
                 transitionProgress = 1f
-                renderIfVisible()
+                scheduleRender()
                 return
             }
 
@@ -170,20 +189,23 @@ class AlbumArtWallpaperService : WallpaperService() {
                 for (i in 1..frames) {
                     val t = i / frames.toFloat()
                     transitionProgress = 1f - (1f - t) * (1f - t)
-                    renderIfVisible()
+                    renderDirect()
                     delay(delayMs)
                 }
                 transitionProgress = 1f
-                renderIfVisible()
+                renderDirect()
             }
         }
 
-        private fun isPhoneLocked(): Boolean {
-            val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-            return km?.isKeyguardLocked ?: false
+        private fun scheduleRender() {
+            if (!isVisibleState) return
+            renderJob?.cancel()
+            renderJob = scope.launch {
+                renderDirect()
+            }
         }
 
-        private fun renderIfVisible() {
+        private fun renderDirect() {
             if (!isVisibleState) return
 
             val holder = surfaceHolder ?: return
@@ -203,11 +225,11 @@ class AlbumArtWallpaperService : WallpaperService() {
 
         private fun drawFrame(canvas: Canvas) {
             val context: Context = this@AlbumArtWallpaperService
-            val isLocked = isPhoneLocked()
             val currentArt = WallpaperState.currentArt.value
-            val restoreArt = WallpaperState.getRestoreArt(isLockScreen = isLocked)
+            val restoreArt = WallpaperState.getRestoreArt(isLockScreen = cachedIsLocked)
             val isRestoreActive = WallpaperState.isRestoreActive.value
-            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = isLocked)
+            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = cachedIsLocked)
+            val preparedBlur = WallpaperState.getPreparedBlur(isLockScreen = cachedIsLocked)
 
             WallpaperRenderer.render(
                 canvas = canvas,
@@ -219,7 +241,8 @@ class AlbumArtWallpaperService : WallpaperService() {
                 config = config,
                 transitionProgress = transitionProgress,
                 transitionMode = transitionMode,
-                previousBitmap = previousBitmap
+                previousBitmap = previousBitmap,
+                preparedBlur = preparedBlur
             )
         }
     }

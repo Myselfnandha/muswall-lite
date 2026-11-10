@@ -41,6 +41,7 @@ object WallpaperState {
 
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var restoreJob: Job? = null
+    private var precomputeJob: Job? = null
 
     private val _currentArt = MutableStateFlow<Bitmap?>(null)
     val currentArt = _currentArt.asStateFlow()
@@ -50,6 +51,12 @@ object WallpaperState {
 
     private val _lockRestoreArt = MutableStateFlow<Bitmap?>(null)
     val lockRestoreArt = _lockRestoreArt.asStateFlow()
+
+    private val _preparedHomeBlur = MutableStateFlow<Bitmap?>(null)
+    val preparedHomeBlur = _preparedHomeBlur.asStateFlow()
+
+    private val _preparedLockBlur = MutableStateFlow<Bitmap?>(null)
+    val preparedLockBlur = _preparedLockBlur.asStateFlow()
 
     private val _isRestoreActive = MutableStateFlow(true)
     val isRestoreActive = _isRestoreActive.asStateFlow()
@@ -81,8 +88,9 @@ object WallpaperState {
     }
 
     fun updateMedia(context: Context, art: Bitmap?, playing: Boolean, title: String?) {
-        if (art != null) {
+        if (art != null && art !== _currentArt.value) {
             _currentArt.value = art
+            schedulePrecomputeBlur()
         }
         _isPlaying.value = playing
         _trackTitle.value = title
@@ -112,6 +120,7 @@ object WallpaperState {
     }
 
     fun notifySettingsChanged() {
+        schedulePrecomputeBlur()
         _settingsChanged.value = System.currentTimeMillis()
     }
 
@@ -128,6 +137,14 @@ object WallpaperState {
             _lockRestoreArt.value ?: _homeRestoreArt.value
         } else {
             _homeRestoreArt.value
+        }
+    }
+
+    fun getPreparedBlur(isLockScreen: Boolean): Bitmap? {
+        return if (_separateScreens.value && isLockScreen) {
+            _preparedLockBlur.value ?: _preparedHomeBlur.value
+        } else {
+            _preparedHomeBlur.value
         }
     }
 
@@ -169,23 +186,39 @@ object WallpaperState {
         notifySettingsChanged()
     }
 
-    fun captureSystemDefaultWallpaper(context: Context): Boolean {
-        try {
-            val wm = WallpaperManager.getInstance(context)
-            val drawable = wm.drawable ?: wm.builtInDrawable
-            if (drawable != null) {
-                val w = drawable.intrinsicWidth.coerceAtLeast(1080)
-                val h = drawable.intrinsicHeight.coerceAtLeast(2400)
-                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                val canvas = Canvas(bmp)
-                drawable.setBounds(0, 0, w, h)
-                drawable.draw(canvas)
-                setUnifiedRestoreBitmap(context, bmp)
-                return true
+    fun captureSystemDefaultWallpaper(context: Context) {
+        scope.launch(Dispatchers.IO) {
+            try {
+                val wm = WallpaperManager.getInstance(context)
+                val drawable = wm.drawable ?: wm.builtInDrawable
+                if (drawable != null) {
+                    val w = drawable.intrinsicWidth.coerceIn(1080, 1440)
+                    val h = drawable.intrinsicHeight.coerceIn(1920, 3200)
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bmp)
+                    drawable.setBounds(0, 0, w, h)
+                    drawable.draw(canvas)
+                    setUnifiedRestoreBitmap(context, bmp)
+                }
+            } catch (_: Exception) {
             }
-        } catch (_: Exception) {
         }
-        return false
+    }
+
+    private fun schedulePrecomputeBlur() {
+        precomputeJob?.cancel()
+        precomputeJob = scope.launch(Dispatchers.Default) {
+            val art = _currentArt.value ?: return@launch
+            val homeBlurPct = _homeConfig.value.blurPercent
+            val lockBlurPct = _lockConfig.value.blurPercent
+
+            _preparedHomeBlur.value = WallpaperRenderer.getNormalBlur(art, homeBlurPct)
+            if (_separateScreens.value && lockBlurPct != homeBlurPct) {
+                _preparedLockBlur.value = WallpaperRenderer.getNormalBlur(art, lockBlurPct)
+            } else {
+                _preparedLockBlur.value = _preparedHomeBlur.value
+            }
+        }
     }
 
     private fun loadConfigs(context: Context) {
