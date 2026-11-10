@@ -17,25 +17,13 @@ import java.io.File
 import java.io.FileOutputStream
 
 data class ScreenConfig(
-    val effectType: Int = EFFECT_COVER,
-    val blurPercent: Int = 0,
+    val blurPercent: Int = 45,
     val dimPercent: Int = 20,
-    val coverPosition: Int = POSITION_CENTER,
-    val coverSizePercent: Int = 85,
-    val coverYOffsetPercent: Int = 0,
     val applyEffect: Int = TRANSITION_FADE,
     val restoreEffect: Int = TRANSITION_FADE,
     val restoreDelaySeconds: Int = 30
 ) {
     companion object {
-        const val EFFECT_COVER = 0
-        const val EFFECT_BLUR = 1
-
-        const val POSITION_TOP = 0
-        const val POSITION_CENTER = 1
-        const val POSITION_BOTTOM = 2
-        const val POSITION_CUSTOM = 3
-
         const val TRANSITION_FADE = 0
         const val TRANSITION_ZOOM = 1
         const val TRANSITION_NONE = 2
@@ -200,12 +188,8 @@ object WallpaperState {
 
     private fun readConfig(prefs: SharedPreferences, prefix: String): ScreenConfig {
         return ScreenConfig(
-            effectType = prefs.getInt("${prefix}_effect_type", ScreenConfig.EFFECT_COVER),
-            blurPercent = prefs.getInt("${prefix}_blur_percent", 0),
+            blurPercent = prefs.getInt("${prefix}_blur_percent", 45),
             dimPercent = prefs.getInt("${prefix}_dim_percent", 20),
-            coverPosition = prefs.getInt("${prefix}_cover_position", ScreenConfig.POSITION_CENTER),
-            coverSizePercent = prefs.getInt("${prefix}_cover_size", 85),
-            coverYOffsetPercent = prefs.getInt("${prefix}_cover_y_offset", 0),
             applyEffect = prefs.getInt("${prefix}_apply_effect", ScreenConfig.TRANSITION_FADE),
             restoreEffect = prefs.getInt("${prefix}_restore_effect", ScreenConfig.TRANSITION_FADE),
             restoreDelaySeconds = prefs.getInt("${prefix}_restore_delay", 30)
@@ -214,12 +198,8 @@ object WallpaperState {
 
     private fun saveConfig(context: Context, prefix: String, config: ScreenConfig) {
         getPrefs(context).edit().apply {
-            putInt("${prefix}_effect_type", config.effectType)
             putInt("${prefix}_blur_percent", config.blurPercent)
             putInt("${prefix}_dim_percent", config.dimPercent)
-            putInt("${prefix}_cover_position", config.coverPosition)
-            putInt("${prefix}_cover_size", config.coverSizePercent)
-            putInt("${prefix}_cover_y_offset", config.coverYOffsetPercent)
             putInt("${prefix}_apply_effect", config.applyEffect)
             putInt("${prefix}_restore_effect", config.restoreEffect)
             putInt("${prefix}_restore_delay", config.restoreDelaySeconds)

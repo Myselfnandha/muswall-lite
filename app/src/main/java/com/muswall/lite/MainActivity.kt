@@ -219,7 +219,7 @@ fun MainScreen() {
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = if (previewShowingRestore) "🖼️ Default" else "🎵 Music Art",
+                                text = if (previewShowingRestore) "🖼️ Default" else "🎵 Music Blur",
                                 fontSize = 11.sp
                             )
                         }
@@ -365,43 +365,6 @@ fun MainScreen() {
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        text = "Wallpaper Effect",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        FilterChip(
-                            selected = currentConfig.effectType == ScreenConfig.EFFECT_COVER,
-                            onClick = {
-                                updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_COVER))
-                            },
-                            label = { Text("Cover", fontSize = 13.sp, fontWeight = FontWeight.Medium) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = currentConfig.effectType == ScreenConfig.EFFECT_BLUR,
-                            onClick = {
-                                updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_BLUR))
-                            },
-                            label = { Text("Blur", fontSize = 13.sp, fontWeight = FontWeight.Medium) },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                }
-            }
-
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
-            ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -427,65 +390,6 @@ fun MainScreen() {
                             },
                             valueRange = 0f..100f
                         )
-                    }
-
-                    if (currentConfig.effectType == ScreenConfig.EFFECT_COVER) {
-                        Column {
-                            Text("Cover Position", fontSize = 13.sp)
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(
-                                    "Top" to ScreenConfig.POSITION_TOP,
-                                    "Center" to ScreenConfig.POSITION_CENTER,
-                                    "Bottom" to ScreenConfig.POSITION_BOTTOM,
-                                    "Custom" to ScreenConfig.POSITION_CUSTOM
-                                ).forEach { (label, pos) ->
-                                    FilterChip(
-                                        selected = currentConfig.coverPosition == pos,
-                                        onClick = { updateCurrentConfig(currentConfig.copy(coverPosition = pos)) },
-                                        label = { Text(label, fontSize = 11.sp) },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-                            }
-                        }
-
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Cover Height", fontSize = 13.sp)
-                                Text("${currentConfig.coverSizePercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
-                            }
-                            Slider(
-                                value = currentConfig.coverSizePercent.toFloat(),
-                                onValueChange = {
-                                    updateCurrentConfig(currentConfig.copy(coverSizePercent = it.toInt()))
-                                },
-                                valueRange = 30f..100f
-                            )
-                        }
-
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Cover Offset", fontSize = 13.sp)
-                                Text("${currentConfig.coverYOffsetPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
-                            }
-                            Slider(
-                                value = currentConfig.coverYOffsetPercent.toFloat(),
-                                onValueChange = {
-                                    updateCurrentConfig(currentConfig.copy(coverYOffsetPercent = it.toInt()))
-                                },
-                                valueRange = -50f..50f
-                            )
-                        }
                     }
 
                     Column {

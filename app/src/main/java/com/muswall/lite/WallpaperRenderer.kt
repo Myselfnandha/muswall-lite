@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import kotlin.math.max
-import kotlin.math.min
 
 object WallpaperRenderer {
 
@@ -43,17 +42,7 @@ object WallpaperRenderer {
         if (isRestoreActive) {
             drawFullBleed(canvas, activeArt, width, height, transitionProgress)
         } else {
-            when (config.effectType) {
-                ScreenConfig.EFFECT_BLUR -> {
-                    drawBlur(canvas, activeArt, width, height, config, transitionProgress)
-                }
-                ScreenConfig.EFFECT_COVER -> {
-                    drawCover(canvas, activeArt, width, height, config, transitionProgress)
-                }
-                else -> {
-                    drawCover(canvas, activeArt, width, height, config, transitionProgress)
-                }
-            }
+            drawBlur(canvas, activeArt, width, height, config, transitionProgress)
         }
 
         applyDimming(canvas, width, height, config.dimPercent)
@@ -61,11 +50,6 @@ object WallpaperRenderer {
 
     private fun drawFallbackBackground(canvas: Canvas, width: Int, height: Int) {
         overlayPaint.color = Color.parseColor("#0C0C12")
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
-    }
-
-    private fun drawSolidBackground(canvas: Canvas, width: Int, height: Int) {
-        overlayPaint.color = Color.parseColor("#0B0B10")
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
     }
 
@@ -116,56 +100,6 @@ object WallpaperRenderer {
         val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
         bitmapPaint.alpha = alpha
         canvas.drawBitmap(blurred, srcRect, destRect, bitmapPaint)
-        bitmapPaint.alpha = 255
-    }
-
-    private fun drawCover(
-        canvas: Canvas,
-        src: Bitmap,
-        targetWidth: Int,
-        targetHeight: Int,
-        config: ScreenConfig,
-        progress: Float
-    ) {
-        drawSolidBackground(canvas, targetWidth, targetHeight)
-
-        val imageToDraw = if (config.blurPercent > 0) {
-            getNormalBlur(src, config.blurPercent)
-        } else {
-            src
-        }
-
-        val maxDimension = min(targetWidth, targetHeight)
-        val scaleFactor = (config.coverSizePercent / 100f).coerceIn(0.3f, 1.0f)
-        val coverSize = maxDimension * scaleFactor
-
-        val srcAspect = src.width.toFloat() / src.height.toFloat().coerceAtLeast(1f)
-        val coverW: Float
-        val coverH: Float
-        if (srcAspect >= 1f) {
-            coverW = coverSize
-            coverH = coverSize / srcAspect
-        } else {
-            coverH = coverSize
-            coverW = coverSize * srcAspect
-        }
-
-        val left = (targetWidth - coverW) / 2f
-        val baseY = when (config.coverPosition) {
-            ScreenConfig.POSITION_TOP -> targetHeight * 0.14f
-            ScreenConfig.POSITION_BOTTOM -> (targetHeight * 0.86f) - coverH
-            else -> (targetHeight - coverH) / 2f
-        }
-
-        val offsetY = (config.coverYOffsetPercent / 100f) * (targetHeight * 0.35f)
-        val top = (baseY + offsetY).coerceIn(0f, (targetHeight - coverH).coerceAtLeast(0f))
-
-        val destRect = RectF(left, top, left + coverW, top + coverH)
-        val srcRect = Rect(0, 0, imageToDraw.width, imageToDraw.height)
-
-        val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
-        bitmapPaint.alpha = alpha
-        canvas.drawBitmap(imageToDraw, srcRect, destRect, bitmapPaint)
         bitmapPaint.alpha = 255
     }
 
