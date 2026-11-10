@@ -78,9 +78,11 @@ object WallpaperRenderer {
                 drawFullBleed(canvas, targetArt, width, height, progress)
             } else {
                 if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
-                    val extraBlur = ((1f - progress) * 50).toInt()
-                    val effectiveConfig = config.copy(blurPercent = (config.blurPercent + extraBlur).coerceIn(1, 100))
-                    drawBlur(canvas, targetArt, width, height, effectiveConfig, progress)
+                    val blur = preparedBlur ?: getNormalBlur(targetArt, config.blurPercent)
+                    if (progress < 1f) {
+                        drawFullBleed(canvas, targetArt, width, height, 1f - progress)
+                    }
+                    drawFullBleed(canvas, blur, width, height, progress)
                 } else if (preparedBlur != null && !preparedBlur.isRecycled) {
                     drawFullBleed(canvas, preparedBlur, width, height, progress)
                 } else {
@@ -108,6 +110,7 @@ object WallpaperRenderer {
     ) {
         if (src.isRecycled) return
         val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
+        if (alpha <= 0) return
         bitmapPaint.alpha = alpha
 
         val scale = max(targetWidth.toFloat() / src.width, targetHeight.toFloat() / src.height)
@@ -147,6 +150,7 @@ object WallpaperRenderer {
         val srcRect = Rect(0, 0, blurred.width, blurred.height)
 
         val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
+        if (alpha <= 0) return
         bitmapPaint.alpha = alpha
         canvas.drawBitmap(blurred, srcRect, destRect, bitmapPaint)
         bitmapPaint.alpha = 255

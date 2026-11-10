@@ -127,6 +127,15 @@ fun MainScreen() {
     }
 
     fun launchSystemDimensionSetter(sourceUri: Uri) {
+        val bmp = loadSoftwareBitmapFromUri(context, sourceUri)
+        if (bmp != null) {
+            if (separateScreens && activeTab == 1) {
+                WallpaperState.setLockRestoreBitmap(context, bmp)
+            } else {
+                WallpaperState.setUnifiedRestoreBitmap(context, bmp)
+            }
+        }
+
         try {
             val cacheFile = File(context.cacheDir, "wallpaper_crop_input.png")
             context.contentResolver.openInputStream(sourceUri)?.use { input ->
@@ -143,14 +152,6 @@ fun MainScreen() {
             cropIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             cropWallpaperLauncher.launch(cropIntent)
         } catch (_: Exception) {
-            val bmp = loadSoftwareBitmapFromUri(context, sourceUri)
-            if (bmp != null) {
-                if (separateScreens && activeTab == 1) {
-                    WallpaperState.setLockRestoreBitmap(context, bmp)
-                } else {
-                    WallpaperState.setUnifiedRestoreBitmap(context, bmp)
-                }
-            }
         }
     }
 

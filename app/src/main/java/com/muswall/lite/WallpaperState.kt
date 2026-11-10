@@ -88,10 +88,19 @@ object WallpaperState {
     }
 
     fun updateMedia(context: Context, art: Bitmap?, playing: Boolean, title: String?) {
-        if (art != null && art !== _currentArt.value) {
+        val current = _currentArt.value
+        val artChanged = when {
+            art == null && current != null -> true
+            art != null && current == null -> true
+            art != null && current != null -> !art.sameAs(current)
+            else -> false
+        }
+
+        if (artChanged) {
             _currentArt.value = art
             schedulePrecomputeBlur()
         }
+
         _isPlaying.value = playing
         _trackTitle.value = title
 
@@ -99,17 +108,18 @@ object WallpaperState {
 
         if (playing) {
             restoreJob?.cancel()
+            restoreJob = null
             _isRestoreActive.value = false
         } else {
             if (config.restoreDelaySeconds == -1) {
                 _isRestoreActive.value = false
             } else if (config.restoreDelaySeconds == 0) {
                 _isRestoreActive.value = true
-            } else {
-                restoreJob?.cancel()
+            } else if (!_isRestoreActive.value && restoreJob == null) {
                 restoreJob = scope.launch {
                     delay(config.restoreDelaySeconds * 1000L)
                     _isRestoreActive.value = true
+                    restoreJob = null
                 }
             }
         }

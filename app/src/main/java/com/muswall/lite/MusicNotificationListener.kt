@@ -20,13 +20,20 @@ class MusicNotificationListener : NotificationListenerService() {
     private var sessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
 
+    private var lastPackageName: String? = null
+    private var lastTrackTitle: String? = null
+    private var lastArtist: String? = null
+    private var lastArtUri: String? = null
+    private var lastExtractedArt: Bitmap? = null
+    private var lastPlayingState: Boolean = false
+
     private val callback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) {
-            updateFromController(activeController)
+            updateFromController(activeController, metadataChanged = true)
         }
 
         override fun onPlaybackStateChanged(state: PlaybackState?) {
-            updateFromController(activeController)
+            updateFromController(activeController, metadataChanged = false)
         }
     }
 
@@ -81,39 +88,54 @@ class MusicNotificationListener : NotificationListenerService() {
             it.metadata != null
         } ?: controllers.first()
 
-        if (activeController?.sessionToken != playingController.sessionToken) {
+        val changed = (activeController?.sessionToken != playingController.sessionToken)
+        if (changed) {
             activeController?.unregisterCallback(callback)
             activeController = playingController
             activeController?.registerCallback(callback)
+            updateFromController(activeController, metadataChanged = true)
+        } else {
+            updateFromController(activeController, metadataChanged = false)
         }
-
-        updateFromController(activeController)
     }
 
-    private fun updateFromController(controller: MediaController?) {
+    private fun updateFromController(controller: MediaController?, metadataChanged: Boolean) {
         if (controller == null) return
 
         val metadata = controller.metadata
         val state = controller.playbackState
         val isPlaying = state?.state == PlaybackState.STATE_PLAYING
         val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
+        val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+        val artUriStr = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: metadata?.getString(MediaMetadata.METADATA_KEY_ART_URI)
+        val pkg = controller.packageName
+
+        val isSameTrack = (pkg == lastPackageName && title == lastTrackTitle && artist == lastArtist && artUriStr == lastArtUri)
+        val isSamePlaying = (isPlaying == lastPlayingState)
+
+        if (!metadataChanged && isSameTrack && isSamePlaying) {
+            return
+        }
+
+        if (isSameTrack && lastExtractedArt != null) {
+            lastPlayingState = isPlaying
+            WallpaperState.updateMedia(applicationContext, lastExtractedArt, isPlaying, title)
+            return
+        }
 
         var bitmap: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
         if (bitmap == null) {
             bitmap = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
         }
 
-        if (bitmap == null) {
-            val artUriStr = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
-                ?: metadata?.getString(MediaMetadata.METADATA_KEY_ART_URI)
-            if (artUriStr != null) {
-                try {
-                    val uri = Uri.parse(artUriStr)
-                    contentResolver.openInputStream(uri)?.use { stream ->
-                        bitmap = BitmapFactory.decodeStream(stream)
-                    }
-                } catch (_: Exception) {
+        if (bitmap == null && artUriStr != null) {
+            try {
+                val uri = Uri.parse(artUriStr)
+                contentResolver.openInputStream(uri)?.use { stream ->
+                    bitmap = BitmapFactory.decodeStream(stream)
                 }
+            } catch (_: Exception) {
             }
         }
 
@@ -121,7 +143,19 @@ class MusicNotificationListener : NotificationListenerService() {
             bitmap = extractArtFromNotifications(controller.packageName)
         }
 
-        WallpaperState.updateMedia(applicationContext, bitmap, isPlaying, title)
+        if (bitmap != null && lastExtractedArt != null && bitmap.sameAs(lastExtractedArt)) {
+            bitmap = lastExtractedArt
+        } else if (bitmap != null) {
+            lastExtractedArt = bitmap
+        }
+
+        lastPackageName = pkg
+        lastTrackTitle = title
+        lastArtist = artist
+        lastArtUri = artUriStr
+        lastPlayingState = isPlaying
+
+        WallpaperState.updateMedia(applicationContext, lastExtractedArt, isPlaying, title)
     }
 
     private fun extractArtFromNotifications(targetPkg: String): Bitmap? {
