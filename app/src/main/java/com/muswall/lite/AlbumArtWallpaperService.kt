@@ -1,7 +1,7 @@
 package com.muswall.lite
 
+import android.app.KeyguardManager
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
@@ -73,7 +73,8 @@ class AlbumArtWallpaperService : WallpaperService() {
 
         private fun triggerApplyTransition() {
             val context: Context = this@AlbumArtWallpaperService
-            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = false)
+            val isLocked = isPhoneLocked()
+            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = isLocked)
             if (config.applyEffect == ScreenConfig.TRANSITION_NONE) {
                 transitionProgress = 1f
                 renderIfVisible()
@@ -82,7 +83,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             transitionJob?.cancel()
             transitionJob = scope.launch {
-                val frames = 18
+                val frames = 16
                 val delayMs = 18L
                 transitionMode = config.applyEffect
                 for (i in 1..frames) {
@@ -97,7 +98,8 @@ class AlbumArtWallpaperService : WallpaperService() {
 
         private fun triggerRestoreTransition() {
             val context: Context = this@AlbumArtWallpaperService
-            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = false)
+            val isLocked = isPhoneLocked()
+            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = isLocked)
             if (config.restoreEffect == ScreenConfig.TRANSITION_NONE) {
                 transitionProgress = 1f
                 renderIfVisible()
@@ -106,7 +108,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             transitionJob?.cancel()
             transitionJob = scope.launch {
-                val frames = 18
+                val frames = 16
                 val delayMs = 18L
                 transitionMode = config.restoreEffect
                 for (i in 1..frames) {
@@ -117,6 +119,11 @@ class AlbumArtWallpaperService : WallpaperService() {
                 transitionProgress = 1f
                 renderIfVisible()
             }
+        }
+
+        private fun isPhoneLocked(): Boolean {
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+            return km?.isKeyguardLocked ?: false
         }
 
         private fun renderIfVisible() {
@@ -139,10 +146,11 @@ class AlbumArtWallpaperService : WallpaperService() {
 
         private fun drawFrame(canvas: Canvas) {
             val context: Context = this@AlbumArtWallpaperService
+            val isLocked = isPhoneLocked()
             val currentArt = WallpaperState.currentArt.value
-            val restoreArt = WallpaperState.restoreArt.value
+            val restoreArt = WallpaperState.getRestoreArt(isLockScreen = isLocked)
             val isRestoreActive = WallpaperState.isRestoreActive.value
-            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = false)
+            val config = WallpaperState.getEffectiveConfig(context, isLockScreen = isLocked)
 
             WallpaperRenderer.render(
                 canvas = canvas,

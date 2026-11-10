@@ -3,25 +3,22 @@ package com.muswall.lite
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
-import android.graphics.Shader
 import kotlin.math.max
 import kotlin.math.min
 
 object WallpaperRenderer {
 
-    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-    private val overlayPaint = Paint().apply {
+    private val bitmapPaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG)
+    private val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
-    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.argb(140, 0, 0, 0)
-    }
+
+    private var cachedSourceKey: Int = 0
+    private var cachedBlurPercent: Int = -1
+    private var cachedBlurredBitmap: Bitmap? = null
 
     fun render(
         canvas: Canvas,
@@ -43,15 +40,19 @@ object WallpaperRenderer {
             return
         }
 
-        when (config.effectType) {
-            ScreenConfig.EFFECT_FULL_BLEED -> {
-                drawFullBleed(canvas, activeArt, width, height, config, transitionProgress, transitionMode)
-            }
-            ScreenConfig.EFFECT_STRETCHED_BLUR -> {
-                drawStretchedBlur(canvas, activeArt, width, height, config, transitionProgress, transitionMode)
-            }
-            ScreenConfig.EFFECT_COVER_CARD -> {
-                drawCoverCardWithBlurredBackground(canvas, activeArt, width, height, config, transitionProgress, transitionMode)
+        if (isRestoreActive) {
+            drawFullBleed(canvas, activeArt, width, height, transitionProgress)
+        } else {
+            when (config.effectType) {
+                ScreenConfig.EFFECT_BLUR -> {
+                    drawBlur(canvas, activeArt, width, height, config, transitionProgress)
+                }
+                ScreenConfig.EFFECT_COVER -> {
+                    drawCover(canvas, activeArt, width, height, config, transitionProgress)
+                }
+                else -> {
+                    drawCover(canvas, activeArt, width, height, config, transitionProgress)
+                }
             }
         }
 
@@ -59,15 +60,13 @@ object WallpaperRenderer {
     }
 
     private fun drawFallbackBackground(canvas: Canvas, width: Int, height: Int) {
-        val gradient = LinearGradient(
-            0f, 0f, 0f, height.toFloat(),
-            intArrayOf(Color.parseColor("#1A1A24"), Color.parseColor("#0C0C12"), Color.BLACK),
-            null,
-            Shader.TileMode.CLAMP
-        )
-        overlayPaint.shader = gradient
+        overlayPaint.color = Color.parseColor("#0C0C12")
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
-        overlayPaint.shader = null
+    }
+
+    private fun drawSolidBackground(canvas: Canvas, width: Int, height: Int) {
+        overlayPaint.color = Color.parseColor("#0B0B10")
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
     }
 
     private fun drawFullBleed(
@@ -75,91 +74,99 @@ object WallpaperRenderer {
         src: Bitmap,
         targetWidth: Int,
         targetHeight: Int,
-        config: ScreenConfig,
-        progress: Float,
-        mode: Int
+        progress: Float
     ) {
         val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
         bitmapPaint.alpha = alpha
 
         val scale = max(targetWidth.toFloat() / src.width, targetHeight.toFloat() / src.height)
-        val scaledW = (scale * src.width)
-        val scaledH = (scale * src.height)
+        val scaledW = scale * src.width
+        val scaledH = scale * src.height
 
         val left = (targetWidth - scaledW) / 2f
         val top = (targetHeight - scaledH) / 2f
 
         val destRect = RectF(left, top, left + scaledW, top + scaledH)
-        canvas.drawBitmap(src, null, destRect, bitmapPaint)
+        val srcRect = Rect(0, 0, src.width, src.height)
+        canvas.drawBitmap(src, srcRect, destRect, bitmapPaint)
         bitmapPaint.alpha = 255
     }
 
-    private fun drawStretchedBlur(
+    private fun drawBlur(
         canvas: Canvas,
         src: Bitmap,
         targetWidth: Int,
         targetHeight: Int,
         config: ScreenConfig,
-        progress: Float,
-        mode: Int
+        progress: Float
     ) {
-        val blurred = fastBoxBlur(src, config.blurPercent)
-        drawFullBleed(canvas, blurred, targetWidth, targetHeight, config, progress, mode)
-    }
+        val effectiveBlur = if (config.blurPercent > 0) config.blurPercent else 50
+        val blurred = getNormalBlur(src, effectiveBlur)
 
-    private fun drawCoverCardWithBlurredBackground(
-        canvas: Canvas,
-        src: Bitmap,
-        targetWidth: Int,
-        targetHeight: Int,
-        config: ScreenConfig,
-        progress: Float,
-        mode: Int
-    ) {
-        val blurredBg = fastBoxBlur(src, config.blurPercent)
-        drawFullBleed(canvas, blurredBg, targetWidth, targetHeight, config, 1f, 0)
+        val scale = max(targetWidth.toFloat() / blurred.width, targetHeight.toFloat() / blurred.height)
+        val scaledW = scale * blurred.width
+        val scaledH = scale * blurred.height
 
-        overlayPaint.color = Color.argb(60, 0, 0, 0)
-        canvas.drawRect(0f, 0f, targetWidth.toFloat(), targetHeight.toFloat(), overlayPaint)
+        val left = (targetWidth - scaledW) / 2f
+        val top = (targetHeight - scaledH) / 2f
 
-        val cardSize = (min(targetWidth, targetHeight) * (config.coverSizePercent / 100f)).toInt()
-            .coerceAtLeast(100)
-
-        val baseCenterX = targetWidth / 2f
-        val baseCenterY = when (config.coverPosition) {
-            ScreenConfig.POSITION_TOP -> targetHeight * 0.28f
-            ScreenConfig.POSITION_BOTTOM -> targetHeight * 0.72f
-            else -> targetHeight * 0.50f
-        }
-
-        val offsetY = (config.coverYOffsetPercent / 100f) * (targetHeight * 0.4f)
-        val centerY = (baseCenterY + offsetY).coerceIn(cardSize / 2f, targetHeight - (cardSize / 2f))
-
-        val left = baseCenterX - (cardSize / 2f)
-        val top = centerY - (cardSize / 2f)
-        val right = left + cardSize
-        val bottom = top + cardSize
-
-        val cardRect = RectF(left, top, right, bottom)
-        val radius = (config.coverCornerRadiusDp * (targetWidth / 360f)).coerceAtLeast(0f)
-
-        val shadowOffset = 14f
-        val shadowRect = RectF(left, top + shadowOffset, right, bottom + shadowOffset)
-        canvas.drawRoundRect(shadowRect, radius, radius, shadowPaint)
-
-        val path = Path().apply {
-            addRoundRect(cardRect, radius, radius, Path.Direction.CW)
-        }
-
-        canvas.save()
-        canvas.clipPath(path)
+        val destRect = RectF(left, top, left + scaledW, top + scaledH)
+        val srcRect = Rect(0, 0, blurred.width, blurred.height)
 
         val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
         bitmapPaint.alpha = alpha
-        val srcRect = Rect(0, 0, src.width, src.height)
-        canvas.drawBitmap(src, srcRect, cardRect, bitmapPaint)
+        canvas.drawBitmap(blurred, srcRect, destRect, bitmapPaint)
         bitmapPaint.alpha = 255
-        canvas.restore()
+    }
+
+    private fun drawCover(
+        canvas: Canvas,
+        src: Bitmap,
+        targetWidth: Int,
+        targetHeight: Int,
+        config: ScreenConfig,
+        progress: Float
+    ) {
+        drawSolidBackground(canvas, targetWidth, targetHeight)
+
+        val imageToDraw = if (config.blurPercent > 0) {
+            getNormalBlur(src, config.blurPercent)
+        } else {
+            src
+        }
+
+        val maxDimension = min(targetWidth, targetHeight)
+        val scaleFactor = (config.coverSizePercent / 100f).coerceIn(0.3f, 1.0f)
+        val coverSize = maxDimension * scaleFactor
+
+        val srcAspect = src.width.toFloat() / src.height.toFloat().coerceAtLeast(1f)
+        val coverW: Float
+        val coverH: Float
+        if (srcAspect >= 1f) {
+            coverW = coverSize
+            coverH = coverSize / srcAspect
+        } else {
+            coverH = coverSize
+            coverW = coverSize * srcAspect
+        }
+
+        val left = (targetWidth - coverW) / 2f
+        val baseY = when (config.coverPosition) {
+            ScreenConfig.POSITION_TOP -> targetHeight * 0.14f
+            ScreenConfig.POSITION_BOTTOM -> (targetHeight * 0.86f) - coverH
+            else -> (targetHeight - coverH) / 2f
+        }
+
+        val offsetY = (config.coverYOffsetPercent / 100f) * (targetHeight * 0.35f)
+        val top = (baseY + offsetY).coerceIn(0f, (targetHeight - coverH).coerceAtLeast(0f))
+
+        val destRect = RectF(left, top, left + coverW, top + coverH)
+        val srcRect = Rect(0, 0, imageToDraw.width, imageToDraw.height)
+
+        val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
+        bitmapPaint.alpha = alpha
+        canvas.drawBitmap(imageToDraw, srcRect, destRect, bitmapPaint)
+        bitmapPaint.alpha = 255
     }
 
     private fun applyDimming(canvas: Canvas, width: Int, height: Int, dimPercent: Int) {
@@ -169,34 +176,43 @@ object WallpaperRenderer {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
     }
 
-    fun fastBoxBlur(source: Bitmap, blurPercent: Int): Bitmap {
+    fun getNormalBlur(source: Bitmap, blurPercent: Int): Bitmap {
         if (blurPercent <= 0) return source
+        val key = System.identityHashCode(source)
+        val cached = cachedBlurredBitmap
+        if (cached != null && cachedSourceKey == key && cachedBlurPercent == blurPercent && !cached.isRecycled) {
+            return cached
+        }
 
         val downscale = 4
-        val smallWidth = (source.width / downscale).coerceAtLeast(1)
-        val smallHeight = (source.height / downscale).coerceAtLeast(1)
-
-        val small = Bitmap.createScaledBitmap(source, smallWidth, smallHeight, true)
+        val sw = (source.width / downscale).coerceAtLeast(16)
+        val sh = (source.height / downscale).coerceAtLeast(16)
+        val small = Bitmap.createScaledBitmap(source, sw, sh, true)
         val output = small.copy(Bitmap.Config.ARGB_8888, true)
+        if (small !== output) {
+            small.recycle()
+        }
 
         val w = output.width
         val h = output.height
         val pixels = IntArray(w * h)
         output.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        val radius = (blurPercent * 25 / 100).coerceIn(1, 25)
-        boxBlurHorizontal(pixels, w, h, radius)
-        boxBlurVertical(pixels, w, h, radius)
-
+        val radius = (blurPercent * 16 / 100).coerceIn(1, 16)
+        boxBlur(pixels, w, h, radius)
         output.setPixels(pixels, 0, w, 0, 0, w, h)
-        val result = Bitmap.createScaledBitmap(output, source.width, source.height, true)
-        small.recycle()
-        output.recycle()
-        return result
+
+        cachedBlurredBitmap?.recycle()
+        cachedBlurredBitmap = output
+        cachedSourceKey = key
+        cachedBlurPercent = blurPercent
+        return output
     }
 
-    private fun boxBlurHorizontal(pixels: IntArray, w: Int, h: Int, r: Int) {
+    private fun boxBlur(pixels: IntArray, w: Int, h: Int, r: Int) {
         val div = 2 * r + 1
+        val temp = IntArray(w * h)
+
         for (y in 0 until h) {
             var a = 0
             var red = 0
@@ -213,7 +229,7 @@ object WallpaperRenderer {
             }
 
             for (x in 0 until w) {
-                pixels[rowOffset + x] = ((a / div) shl 24) or
+                temp[rowOffset + x] = ((a / div) shl 24) or
                         ((red / div) shl 16) or
                         ((g / div) shl 8) or
                         (b / div)
@@ -227,10 +243,7 @@ object WallpaperRenderer {
                 b += (pIn and 0xff) - (pOut and 0xff)
             }
         }
-    }
 
-    private fun boxBlurVertical(pixels: IntArray, w: Int, h: Int, r: Int) {
-        val div = 2 * r + 1
         for (x in 0 until w) {
             var a = 0
             var red = 0
@@ -238,7 +251,7 @@ object WallpaperRenderer {
             var b = 0
 
             for (i in -r..r) {
-                val p = pixels[i.coerceIn(0, h - 1) * w + x]
+                val p = temp[i.coerceIn(0, h - 1) * w + x]
                 a += (p ushr 24) and 0xff
                 red += (p ushr 16) and 0xff
                 g += (p ushr 8) and 0xff
@@ -251,8 +264,8 @@ object WallpaperRenderer {
                         ((g / div) shl 8) or
                         (b / div)
 
-                val pOut = pixels[(y - r).coerceIn(0, h - 1) * w + x]
-                val pIn = pixels[(y + r + 1).coerceIn(0, h - 1) * w + x]
+                val pOut = temp[(y - r).coerceIn(0, h - 1) * w + x]
+                val pIn = temp[(y + r + 1).coerceIn(0, h - 1) * w + x]
 
                 a += ((pIn ushr 24) and 0xff) - ((pOut ushr 24) and 0xff)
                 red += ((pIn ushr 16) and 0xff) - ((pOut ushr 16) and 0xff)

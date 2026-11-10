@@ -5,14 +5,16 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
+import android.graphics.ImageDecoder
 import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
-import android.provider.MediaStore
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -59,9 +62,9 @@ fun MusWallLiteTheme(content: @Composable () -> Unit) {
         colorScheme = darkColorScheme(
             primary = Color(0xFF64B5F6),
             secondary = Color(0xFF81C784),
-            background = Color(0xFF101014),
-            surface = Color(0xFF181820),
-            surfaceVariant = Color(0xFF22222C),
+            background = Color(0xFF0F0F14),
+            surface = Color(0xFF16161E),
+            surfaceVariant = Color(0xFF20202C),
             onBackground = Color.White,
             onSurface = Color.White
         ),
@@ -79,21 +82,36 @@ fun MainScreen() {
     val separateScreens by WallpaperState.separateScreens.collectAsState()
 
     val currentArt by WallpaperState.currentArt.collectAsState()
-    val restoreArt by WallpaperState.restoreArt.collectAsState()
+    val homeRestoreArt by WallpaperState.homeRestoreArt.collectAsState()
+    val lockRestoreArt by WallpaperState.lockRestoreArt.collectAsState()
     val isPlaying by WallpaperState.isPlaying.collectAsState()
     val trackTitle by WallpaperState.trackTitle.collectAsState()
 
     var activeTab by remember { mutableIntStateOf(0) }
-    var previewTestingRestore by remember { mutableStateOf(false) }
+    var previewShowingRestore by remember { mutableStateOf(false) }
 
-    val photoPickerLauncher = rememberLauncherForActivityResult(
+    val homePhotoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                val bitmap = MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
-                WallpaperState.setRestoreBitmap(context, bitmap)
-            } catch (_: Exception) {
+            val bmp = loadSoftwareBitmapFromUri(context, uri)
+            if (bmp != null) {
+                if (separateScreens) {
+                    WallpaperState.setHomeRestoreBitmap(context, bmp)
+                } else {
+                    WallpaperState.setUnifiedRestoreBitmap(context, bmp)
+                }
+            }
+        }
+    }
+
+    val lockPhotoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val bmp = loadSoftwareBitmapFromUri(context, uri)
+            if (bmp != null) {
+                WallpaperState.setLockRestoreBitmap(context, bmp)
             }
         }
     }
@@ -111,23 +129,24 @@ fun MainScreen() {
         }
     }
 
-    val previewBitmap = remember(displayArt, restoreArt, previewTestingRestore, currentConfig) {
-        val pw = 360
-        val ph = 760
-        val bmp = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        WallpaperRenderer.render(
-            canvas = canvas,
-            width = pw,
-            height = ph,
-            artBitmap = displayArt,
-            restoreBitmap = restoreArt,
-            isRestoreActive = previewTestingRestore,
-            config = currentConfig,
-            transitionProgress = 1f,
-            transitionMode = 0
+    val homePreviewBitmap = remember(displayArt, homeRestoreArt, previewShowingRestore, homeConfig) {
+        renderScreenPreview(
+            art = displayArt,
+            restore = homeRestoreArt,
+            isRestore = previewShowingRestore,
+            config = homeConfig
         )
-        bmp
+    }
+
+    val lockPreviewBitmap = remember(displayArt, lockRestoreArt, homeRestoreArt, previewShowingRestore, lockConfig, separateScreens) {
+        val effectiveLockRestore = if (separateScreens) (lockRestoreArt ?: homeRestoreArt) else homeRestoreArt
+        val effectiveLockConfig = if (separateScreens) lockConfig else homeConfig
+        renderScreenPreview(
+            art = displayArt,
+            restore = effectiveLockRestore,
+            isRestore = previewShowingRestore,
+            config = effectiveLockConfig
+        )
     }
 
     Scaffold(
@@ -143,7 +162,7 @@ fun MainScreen() {
                         modifier = Modifier.padding(end = 12.dp)
                     ) {
                         Text(
-                            text = if (separateScreens) "Separate Profiles" else "Linked Profiles",
+                            text = if (separateScreens) "Separate Screens" else "Linked",
                             fontSize = 12.sp,
                             color = if (separateScreens) MaterialTheme.colorScheme.primary else Color.Gray
                         )
@@ -163,8 +182,8 @@ fun MainScreen() {
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Card(
                 shape = RoundedCornerShape(20.dp),
@@ -180,14 +199,14 @@ fun MainScreen() {
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Live Preview",
+                                text = "Live Screen Preview",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )
                             Text(
-                                text = trackTitle ?: (if (currentArt != null) "Active Music Stream" else "Sample Cover Preview"),
+                                text = if (previewShowingRestore) "Restored Default Wallpaper" else (trackTitle ?: "Music Album Artwork"),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1
@@ -195,33 +214,129 @@ fun MainScreen() {
                         }
 
                         FilledTonalButton(
-                            onClick = { previewTestingRestore = !previewTestingRestore },
+                            onClick = { previewShowingRestore = !previewShowingRestore },
                             shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = if (previewTestingRestore) "Restore Active" else "Playing Art",
-                                fontSize = 12.sp
+                                text = if (previewShowingRestore) "🖼️ Default" else "🎵 Music Art",
+                                fontSize = 11.sp
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .width(135.dp)
-                            .height(285.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                            .border(2.dp, Color(0xFF333344), RoundedCornerShape(22.dp))
-                            .background(Color.Black),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Image(
-                            bitmap = previewBitmap.asImageBitmap(),
-                            contentDescription = "Wallpaper Live Preview",
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.clickable { activeTab = 0 }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(115.dp)
+                                    .height(245.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .border(
+                                        width = if (activeTab == 0) 2.5.dp else 1.dp,
+                                        color = if (activeTab == 0) MaterialTheme.colorScheme.primary else Color(0xFF333345),
+                                        shape = RoundedCornerShape(18.dp)
+                                    )
+                                    .background(Color.Black),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Image(
+                                    bitmap = homePreviewBitmap.asImageBitmap(),
+                                    contentDescription = "Home Screen Live Preview",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(bottom = 12.dp),
+                                    verticalArrangement = Arrangement.Bottom,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        repeat(4) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(16.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(0x77FFFFFF))
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "🏠 Home Screen",
+                                fontSize = 12.sp,
+                                fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Normal,
+                                color = if (activeTab == 0) MaterialTheme.colorScheme.primary else Color.LightGray
+                            )
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.clickable { activeTab = 1 }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(115.dp)
+                                    .height(245.dp)
+                                    .clip(RoundedCornerShape(18.dp))
+                                    .border(
+                                        width = if (activeTab == 1) 2.5.dp else 1.dp,
+                                        color = if (activeTab == 1) MaterialTheme.colorScheme.primary else Color(0xFF333345),
+                                        shape = RoundedCornerShape(18.dp)
+                                    )
+                                    .background(Color.Black),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Image(
+                                    bitmap = lockPreviewBitmap.asImageBitmap(),
+                                    contentDescription = "Lock Screen Live Preview",
+                                    modifier = Modifier.fillMaxSize()
+                                )
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(top = 16.dp),
+                                    verticalArrangement = Arrangement.Top,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "12:45",
+                                        color = Color.White,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "Tuesday, Nov 10",
+                                        color = Color(0xCCFFFFFF),
+                                        fontSize = 9.sp
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "🔒 Lock Screen",
+                                fontSize = 12.sp,
+                                fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal,
+                                color = if (activeTab == 1) MaterialTheme.colorScheme.primary else Color.LightGray
+                            )
+                        }
                     }
                 }
             }
@@ -235,12 +350,12 @@ fun MainScreen() {
                     Tab(
                         selected = activeTab == 0,
                         onClick = { activeTab = 0 },
-                        text = { Text("🏠 Home Screen", fontWeight = FontWeight.SemiBold) }
+                        text = { Text("🏠 Home Screen Settings", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
                     )
                     Tab(
                         selected = activeTab == 1,
                         onClick = { activeTab = 1 },
-                        text = { Text("🔒 Lock Screen", fontWeight = FontWeight.SemiBold) }
+                        text = { Text("🔒 Lock Screen Settings", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
                     )
                 }
             }
@@ -260,30 +375,22 @@ fun MainScreen() {
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         FilterChip(
-                            selected = currentConfig.effectType == ScreenConfig.EFFECT_COVER_CARD,
+                            selected = currentConfig.effectType == ScreenConfig.EFFECT_COVER,
                             onClick = {
-                                updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_COVER_CARD))
+                                updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_COVER))
                             },
-                            label = { Text("Cover Card", fontSize = 12.sp) },
+                            label = { Text("Cover", fontSize = 13.sp, fontWeight = FontWeight.Medium) },
                             modifier = Modifier.weight(1f)
                         )
                         FilterChip(
-                            selected = currentConfig.effectType == ScreenConfig.EFFECT_FULL_BLEED,
+                            selected = currentConfig.effectType == ScreenConfig.EFFECT_BLUR,
                             onClick = {
-                                updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_FULL_BLEED))
+                                updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_BLUR))
                             },
-                            label = { Text("Full Bleed", fontSize = 12.sp) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = currentConfig.effectType == ScreenConfig.EFFECT_STRETCHED_BLUR,
-                            onClick = {
-                                updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_STRETCHED_BLUR))
-                            },
-                            label = { Text("Stretch Blur", fontSize = 12.sp) },
+                            label = { Text("Blur", fontSize = 13.sp, fontWeight = FontWeight.Medium) },
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -300,7 +407,7 @@ fun MainScreen() {
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Text(
-                        text = "Effect Sliders & Layout",
+                        text = "Control Sliders",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
@@ -310,7 +417,7 @@ fun MainScreen() {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Gaussian Blur", fontSize = 13.sp)
+                            Text("Blur", fontSize = 13.sp)
                             Text("${currentConfig.blurPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                         }
                         Slider(
@@ -322,9 +429,9 @@ fun MainScreen() {
                         )
                     }
 
-                    if (currentConfig.effectType == ScreenConfig.EFFECT_COVER_CARD) {
+                    if (currentConfig.effectType == ScreenConfig.EFFECT_COVER) {
                         Column {
-                            Text("Cover Card Position", fontSize = 13.sp)
+                            Text("Cover Position", fontSize = 13.sp)
                             Spacer(modifier = Modifier.height(6.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -351,7 +458,7 @@ fun MainScreen() {
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Cover Height / Size", fontSize = 13.sp)
+                                Text("Cover Height", fontSize = 13.sp)
                                 Text("${currentConfig.coverSizePercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                             }
                             Slider(
@@ -359,7 +466,7 @@ fun MainScreen() {
                                 onValueChange = {
                                     updateCurrentConfig(currentConfig.copy(coverSizePercent = it.toInt()))
                                 },
-                                valueRange = 30f..95f
+                                valueRange = 30f..100f
                             )
                         }
 
@@ -368,7 +475,7 @@ fun MainScreen() {
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Cover Vertical Offset", fontSize = 13.sp)
+                                Text("Cover Offset", fontSize = 13.sp)
                                 Text("${currentConfig.coverYOffsetPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                             }
                             Slider(
@@ -379,23 +486,6 @@ fun MainScreen() {
                                 valueRange = -50f..50f
                             )
                         }
-
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Card Corner Radius", fontSize = 13.sp)
-                                Text("${currentConfig.coverCornerRadiusDp}dp", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
-                            }
-                            Slider(
-                                value = currentConfig.coverCornerRadiusDp.toFloat(),
-                                onValueChange = {
-                                    updateCurrentConfig(currentConfig.copy(coverCornerRadiusDp = it.toInt()))
-                                },
-                                valueRange = 0f..45f
-                            )
-                        }
                     }
 
                     Column {
@@ -403,7 +493,7 @@ fun MainScreen() {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Dimming / Vignette", fontSize = 13.sp)
+                            Text("Dimming", fontSize = 13.sp)
                             Text("${currentConfig.dimPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                         }
                         Slider(
@@ -426,9 +516,74 @@ fun MainScreen() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Restore Wallpaper & Timing", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Restore Wallpaper (Default Wallpaper)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text(
+                        text = "When music pauses or stops, the wallpaper automatically restores to your default phone wallpaper.",
+                        fontSize = 12.sp,
+                        color = Color.LightGray
+                    )
 
-                    Text("Delay before restoring after playback pauses:", fontSize = 13.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 75.dp, height = 120.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .border(1.dp, Color(0xFF444455), RoundedCornerShape(10.dp))
+                                    .background(Color.DarkGray),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (homeRestoreArt != null) {
+                                    Image(
+                                        bitmap = homeRestoreArt!!.asImageBitmap(),
+                                        contentDescription = "Home Default Wallpaper",
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Text("Default", fontSize = 10.sp, color = Color.Gray)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Home Default", fontSize = 11.sp, color = Color.White)
+                        }
+
+                        if (separateScreens) {
+                            Column(
+                                modifier = Modifier.weight(1f),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(width = 75.dp, height = 120.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .border(1.dp, Color(0xFF444455), RoundedCornerShape(10.dp))
+                                        .background(Color.DarkGray),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val lockArt = lockRestoreArt ?: homeRestoreArt
+                                    if (lockArt != null) {
+                                        Image(
+                                            bitmap = lockArt.asImageBitmap(),
+                                            contentDescription = "Lock Default Wallpaper",
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                    } else {
+                                        Text("Default", fontSize = 10.sp, color = Color.Gray)
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Lock Default", fontSize = 11.sp, color = Color.White)
+                            }
+                        }
+                    }
+
+                    Text("Delay before restoring default wallpaper:", fontSize = 13.sp)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -456,48 +611,57 @@ fun MainScreen() {
                     ) {
                         OutlinedButton(
                             onClick = {
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                )
+                                WallpaperState.captureSystemDefaultWallpaper(context)
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Pick Gallery Wallpaper", fontSize = 11.sp)
+                            Text("Capture System Wallpaper", fontSize = 11.sp, textAlign = TextAlign.Center)
                         }
 
                         OutlinedButton(
                             onClick = {
                                 try {
-                                    val wm = WallpaperManager.getInstance(context)
-                                    val drawable = wm.drawable
-                                    if (drawable != null) {
-                                        val bmp = Bitmap.createBitmap(
-                                            drawable.intrinsicWidth.coerceAtLeast(1080),
-                                            drawable.intrinsicHeight.coerceAtLeast(1920),
-                                            Bitmap.Config.ARGB_8888
-                                        )
-                                        val canvas = Canvas(bmp)
-                                        drawable.setBounds(0, 0, canvas.width, canvas.height)
-                                        drawable.draw(canvas)
-                                        WallpaperState.setRestoreBitmap(context, bmp)
-                                    }
+                                    val intent = Intent(Intent.ACTION_SET_WALLPAPER)
+                                    context.startActivity(Intent.createChooser(intent, "Select Wallpaper"))
                                 } catch (_: Exception) {
                                 }
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Capture System Wallpaper", fontSize = 11.sp)
+                            Text("System Settings", fontSize = 11.sp, textAlign = TextAlign.Center)
                         }
                     }
 
-                    if (restoreArt != null) {
-                        TextButton(
-                            onClick = { WallpaperState.setRestoreBitmap(context, null) },
-                            modifier = Modifier.align(Alignment.End)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                homePhotoPicker.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
                         ) {
-                            Text("Reset to Default Ambient Dark", fontSize = 12.sp, color = Color(0xFFFF8A80))
+                            Text(if (separateScreens) "Pick Home Wallpaper" else "Pick Custom Wallpaper", fontSize = 11.sp)
+                        }
+
+                        if (separateScreens) {
+                            OutlinedButton(
+                                onClick = {
+                                    lockPhotoPicker.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("Pick Lock Wallpaper", fontSize = 11.sp)
+                            }
                         }
                     }
                 }
@@ -593,6 +757,48 @@ fun MainScreen() {
 
             Spacer(modifier = Modifier.height(10.dp))
         }
+    }
+}
+
+fun renderScreenPreview(
+    art: Bitmap?,
+    restore: Bitmap?,
+    isRestore: Boolean,
+    config: ScreenConfig
+): Bitmap {
+    val pw = 280
+    val ph = 600
+    val bmp = Bitmap.createBitmap(pw, ph, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+    WallpaperRenderer.render(
+        canvas = canvas,
+        width = pw,
+        height = ph,
+        artBitmap = art,
+        restoreBitmap = restore,
+        isRestoreActive = isRestore,
+        config = config,
+        transitionProgress = 1f,
+        transitionMode = 0
+    )
+    return bmp
+}
+
+fun loadSoftwareBitmapFromUri(context: Context, uri: Uri): Bitmap? {
+    return try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val source = ImageDecoder.createSource(context.contentResolver, uri)
+            ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                decoder.isMutableRequired = true
+            }
+        } else {
+            context.contentResolver.openInputStream(uri)?.use { stream ->
+                BitmapFactory.decodeStream(stream)
+            }
+        }
+    } catch (_: Exception) {
+        null
     }
 }
 
