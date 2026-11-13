@@ -219,9 +219,9 @@ object WallpaperRenderer {
         }
 
         val left = centerX - (stillW / 2f)
-        val baseTop = (targetHeight - stillH) / 2f
-        val offsetY = (config.stillOffsetYPercent / 100f) * (targetHeight * 0.4f)
-        val top = (baseTop + offsetY).coerceIn(0f, (targetHeight - stillH).coerceAtLeast(0f))
+        val availableY = (targetHeight - stillH).coerceAtLeast(0f)
+        val normalizedY = ((config.stillOffsetYPercent + 100f) / 200f).coerceIn(0f, 1f)
+        val top = availableY * normalizedY
 
         val rect = RectF(left, top, left + stillW, top + stillH)
         val cornerRadius = min(stillW, stillH) * (config.stillCornerRadiusPercent / 100f) * 0.5f
@@ -289,8 +289,15 @@ object WallpaperRenderer {
             return cached
         }
 
-        val targetWidth = 128
-        val targetHeight = (targetWidth * source.height / source.width).coerceIn(64, 256)
+        val targetWidth = when {
+            blurPercent <= 5 -> 512
+            blurPercent <= 15 -> 400
+            blurPercent <= 40 -> 280
+            blurPercent <= 70 -> 180
+            else -> 120
+        }.coerceAtMost(source.width)
+
+        val targetHeight = (targetWidth * source.height / source.width).coerceIn(48, 1200)
         val small = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
         val output = small.copy(Bitmap.Config.ARGB_8888, true)
         if (small !== output) {
@@ -311,8 +318,36 @@ object WallpaperRenderer {
 
         output.getPixels(pixels, 0, w, 0, 0, w, h)
 
-        val radius = (blurPercent * 30 / 100).coerceIn(1, 30)
-        multiPassBoxBlur(pixels, w, h, radius)
+        val passes: Int
+        val radius: Int
+        when {
+            blurPercent <= 2 -> {
+                passes = 1
+                radius = 1
+            }
+            blurPercent <= 5 -> {
+                passes = 2
+                radius = 1
+            }
+            blurPercent <= 15 -> {
+                passes = 2
+                radius = 1 + (blurPercent - 5) / 3
+            }
+            blurPercent <= 40 -> {
+                passes = 3
+                radius = 2 + (blurPercent - 15) * 8 / 25
+            }
+            blurPercent <= 70 -> {
+                passes = 3
+                radius = 6 + (blurPercent - 40) * 10 / 30
+            }
+            else -> {
+                passes = 3
+                radius = 12 + (blurPercent - 70) * 16 / 30
+            }
+        }
+
+        multiPassBoxBlur(pixels, w, h, radius, passes)
         output.setPixels(pixels, 0, w, 0, 0, w, h)
 
         cachedBlurredBitmap = output
@@ -321,7 +356,7 @@ object WallpaperRenderer {
         return output
     }
 
-    private fun multiPassBoxBlur(pixels: IntArray, w: Int, h: Int, r: Int) {
+    private fun multiPassBoxBlur(pixels: IntArray, w: Int, h: Int, r: Int, passes: Int = 3) {
         val total = w * h
         val temp = if (scratchTemp != null && scratchTemp!!.size >= total) {
             scratchTemp!!
@@ -331,9 +366,9 @@ object WallpaperRenderer {
             newArr
         }
 
-        boxBlurPass(pixels, temp, w, h, r)
-        boxBlurPass(pixels, temp, w, h, r)
-        boxBlurPass(pixels, temp, w, h, r)
+        for (p in 0 until passes.coerceIn(1, 3)) {
+            boxBlurPass(pixels, temp, w, h, r)
+        }
     }
 
     private fun boxBlurPass(pixels: IntArray, temp: IntArray, w: Int, h: Int, r: Int) {

@@ -600,22 +600,23 @@ fun MainScreen() {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Vertical Offset", fontSize = 13.sp)
+                                Text("Vertical Position", fontSize = 13.sp)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val offsetText = when {
+                                        currentConfig.stillOffsetYPercent == -25 -> "Upper (-25%)"
                                         currentConfig.stillOffsetYPercent == 0 -> "Center (0%)"
                                         currentConfig.stillOffsetYPercent < 0 -> "Up ${-currentConfig.stillOffsetYPercent}%"
                                         else -> "Down ${currentConfig.stillOffsetYPercent}%"
                                     }
                                     Text(offsetText, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
-                                    if (currentConfig.stillOffsetYPercent != 0) {
+                                    if (currentConfig.stillOffsetYPercent != -25) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Reset",
+                                            text = "Default",
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.secondary,
                                             modifier = Modifier.clickable {
-                                                updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = 0))
+                                                updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = -25))
                                             }
                                         )
                                     }
@@ -626,8 +627,40 @@ fun MainScreen() {
                                 onValueChange = {
                                     updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = it.toInt()))
                                 },
-                                valueRange = -50f..50f
+                                valueRange = -100f..100f
                             )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    "Top" to -75,
+                                    "Upper" to -25,
+                                    "Center" to 0,
+                                    "Lower" to 40
+                                ).forEach { (label, value) ->
+                                    val isSelected = currentConfig.stillOffsetYPercent == value
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = value))
+                                            }
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.padding(vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         Column {
