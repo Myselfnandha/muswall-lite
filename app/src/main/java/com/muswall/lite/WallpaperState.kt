@@ -33,6 +33,7 @@ data class ScreenConfig(
     val restoreDimPercent: Int = 20,
     val wallpaperOffsetYPercent: Int = -35,
     val wallpaperOffsetXPercent: Int = 0,
+    val autoHorizontalFraming: Boolean = true,
     val aspectFitMode: Int = ASPECT_FIT_WIDTH
 ) {
     companion object {
@@ -367,6 +368,7 @@ object WallpaperState {
             restoreDimPercent = prefs.getInt("${prefix}_restore_dim_percent", 20),
             wallpaperOffsetYPercent = prefs.getInt("${prefix}_wallpaper_offset_y_percent", defaultOffset),
             wallpaperOffsetXPercent = prefs.getInt("${prefix}_wallpaper_offset_x_percent", 0),
+            autoHorizontalFraming = prefs.getBoolean("${prefix}_auto_horizontal_framing", true),
             aspectFitMode = prefs.getInt("${prefix}_aspect_fit_mode", ScreenConfig.ASPECT_FIT_WIDTH)
         )
     }
@@ -387,6 +389,7 @@ object WallpaperState {
             putInt("${prefix}_restore_dim_percent", config.restoreDimPercent)
             putInt("${prefix}_wallpaper_offset_y_percent", config.wallpaperOffsetYPercent)
             putInt("${prefix}_wallpaper_offset_x_percent", config.wallpaperOffsetXPercent)
+            putBoolean("${prefix}_auto_horizontal_framing", config.autoHorizontalFraming)
             putInt("${prefix}_aspect_fit_mode", config.aspectFitMode)
             apply()
         }

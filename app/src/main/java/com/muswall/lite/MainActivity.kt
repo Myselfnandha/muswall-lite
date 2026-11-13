@@ -371,17 +371,16 @@ fun MainScreen() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Card(
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(
@@ -393,11 +392,11 @@ fun MainScreen() {
                             Text(
                                 text = "Live Screen Preview",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
+                                fontSize = 15.sp
                             )
                             Text(
                                 text = if (previewShowingRestore) "Restored Default Wallpaper (Home & Lock)" else (trackTitle ?: "Music Album Artwork"),
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1
                             )
@@ -417,7 +416,7 @@ fun MainScreen() {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -429,8 +428,8 @@ fun MainScreen() {
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .width(115.dp)
-                                    .height(245.dp)
+                                    .width(105.dp)
+                                    .height(225.dp)
                                     .clip(RoundedCornerShape(18.dp))
                                     .border(
                                         width = if (activeTab == 0) 2.5.dp else 1.dp,
@@ -495,10 +494,10 @@ fun MainScreen() {
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "🏠 Home Screen",
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Normal,
                                 color = if (activeTab == 0) MaterialTheme.colorScheme.primary else Color.LightGray
                             )
@@ -510,8 +509,8 @@ fun MainScreen() {
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .width(115.dp)
-                                    .height(245.dp)
+                                    .width(105.dp)
+                                    .height(225.dp)
                                     .clip(RoundedCornerShape(18.dp))
                                     .border(
                                         width = if (activeTab == 1) 2.5.dp else 1.dp,
@@ -548,10 +547,10 @@ fun MainScreen() {
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "🔒 Lock Screen",
-                                fontSize = 12.sp,
+                                fontSize = 11.sp,
                                 fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Normal,
                                 color = if (activeTab == 1) MaterialTheme.colorScheme.primary else Color.LightGray
                             )
@@ -578,6 +577,15 @@ fun MainScreen() {
                     )
                 }
             }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
 
             Card(
                 shape = RoundedCornerShape(18.dp),
@@ -849,59 +857,92 @@ fun MainScreen() {
                         color = Color.LightGray
                     )
 
-                    if (currentConfig.effectType == ScreenConfig.EFFECT_BLUR && currentConfig.aspectFitMode == ScreenConfig.ASPECT_FILL) {
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Horizontal Framing", fontSize = 13.sp)
-                                val xAlignLabel = when {
-                                    currentConfig.wallpaperOffsetXPercent == 0 -> "Center (0%)"
-                                    currentConfig.wallpaperOffsetXPercent <= -70 -> "Left Focus (${currentConfig.wallpaperOffsetXPercent}%)"
-                                    currentConfig.wallpaperOffsetXPercent >= 70 -> "Right Focus (+${currentConfig.wallpaperOffsetXPercent}%)"
-                                    currentConfig.wallpaperOffsetXPercent < 0 -> "Left ${-currentConfig.wallpaperOffsetXPercent}%"
-                                    else -> "Right +${currentConfig.wallpaperOffsetXPercent}%"
-                                }
-                                Text(xAlignLabel, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
-                            }
-                            Slider(
-                                value = currentConfig.wallpaperOffsetXPercent.toFloat(),
-                                onValueChange = {
-                                    updateCurrentConfig(currentConfig.copy(wallpaperOffsetXPercent = it.toInt()))
-                                },
-                                valueRange = -100f..100f
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(
-                                    "Left Focus" to -80,
-                                    "Center" to 0,
-                                    "Right Focus" to 80
-                                ).forEach { (label, value) ->
-                                    val isSelected = currentConfig.wallpaperOffsetXPercent == value
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                        border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clickable {
-                                                updateCurrentConfig(currentConfig.copy(wallpaperOffsetXPercent = value))
-                                            }
-                                    ) {
-                                        Text(
-                                            text = label,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            textAlign = TextAlign.Center,
-                                            modifier = Modifier.padding(vertical = 6.dp)
-                                        )
+                    Column {
+                        val activeArt = if (previewShowingRestore) (if (localSeparateScreens && activeTab == 1) effectiveLockRestore else effectiveHomeRestore) else displayArt
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Horizontal Framing", fontSize = 13.sp)
+                            val xAlignLabel = when {
+                                currentConfig.autoHorizontalFraming -> {
+                                    val detected = activeArt?.let { WallpaperRenderer.getFocalXPercent(it) } ?: 0
+                                    val dir = when {
+                                        detected <= -15 -> "Left Focus ($detected%)"
+                                        detected >= 15 -> "Right Focus (+$detected%)"
+                                        else -> "Center ($detected%)"
                                     }
+                                    "🧠 Context-Aware ($dir)"
+                                }
+                                currentConfig.wallpaperOffsetXPercent == 0 -> "Center (0%)"
+                                currentConfig.wallpaperOffsetXPercent <= -70 -> "Left Focus (${currentConfig.wallpaperOffsetXPercent}%)"
+                                currentConfig.wallpaperOffsetXPercent >= 70 -> "Right Focus (+${currentConfig.wallpaperOffsetXPercent}%)"
+                                currentConfig.wallpaperOffsetXPercent < 0 -> "Left ${-currentConfig.wallpaperOffsetXPercent}%"
+                                else -> "Right +${currentConfig.wallpaperOffsetXPercent}%"
+                            }
+                            Text(xAlignLabel, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                        val sliderValue = if (currentConfig.autoHorizontalFraming) {
+                            (activeArt?.let { WallpaperRenderer.getFocalXPercent(it) } ?: currentConfig.wallpaperOffsetXPercent).toFloat()
+                        } else {
+                            currentConfig.wallpaperOffsetXPercent.toFloat()
+                        }
+                        Slider(
+                            value = sliderValue.coerceIn(-100f, 100f),
+                            onValueChange = {
+                                updateCurrentConfig(currentConfig.copy(autoHorizontalFraming = false, wallpaperOffsetXPercent = it.toInt()))
+                            },
+                            valueRange = -100f..100f
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val isContextAware = currentConfig.autoHorizontalFraming
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isContextAware) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(1.dp, if (isContextAware) MaterialTheme.colorScheme.primary else Color.Transparent),
+                                modifier = Modifier
+                                    .weight(1.3f)
+                                    .clickable {
+                                        updateCurrentConfig(currentConfig.copy(autoHorizontalFraming = true))
+                                    }
+                            ) {
+                                Text(
+                                    text = "🧠 Context-Aware",
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isContextAware) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isContextAware) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 6.dp)
+                                )
+                            }
+                            listOf(
+                                "Left Focus" to -80,
+                                "Center" to 0,
+                                "Right Focus" to 80
+                            ).forEach { (label, value) ->
+                                val isSelected = !currentConfig.autoHorizontalFraming && currentConfig.wallpaperOffsetXPercent == value
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            updateCurrentConfig(currentConfig.copy(autoHorizontalFraming = false, wallpaperOffsetXPercent = value))
+                                        }
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(vertical = 6.dp)
+                                    )
                                 }
                             }
                         }
@@ -1430,6 +1471,7 @@ fun MainScreen() {
             Spacer(modifier = Modifier.height(10.dp))
         }
     }
+}
 }
 
 fun renderScreenPreview(

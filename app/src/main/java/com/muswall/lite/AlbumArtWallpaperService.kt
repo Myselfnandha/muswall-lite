@@ -285,7 +285,7 @@ class AlbumArtWallpaperService : WallpaperService() {
                     return
                 }
             }
-            if (changed && isVisibleState && surfaceWidth > displayWidth) {
+            if (changed && isVisibleState && surfaceWidth >= displayWidth) {
                 scheduleRender()
             }
         }
