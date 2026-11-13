@@ -5,7 +5,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color as AndroidColor
 import android.graphics.ImageDecoder
@@ -13,7 +12,6 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -112,9 +110,6 @@ fun MainScreen() {
     val currentArt by WallpaperState.currentArt.collectAsState()
     val homeRestoreArt by WallpaperState.homeRestoreArt.collectAsState()
     val lockRestoreArt by WallpaperState.lockRestoreArt.collectAsState()
-    val preparedHomeBlur by WallpaperState.preparedHomeBlur.collectAsState()
-    val preparedLockBlur by WallpaperState.preparedLockBlur.collectAsState()
-    val isPlaying by WallpaperState.isPlaying.collectAsState()
     val trackTitle by WallpaperState.trackTitle.collectAsState()
 
     var activeTab by remember { mutableIntStateOf(0) }
@@ -148,8 +143,12 @@ fun MainScreen() {
     fun launchSystemDimensionSetter(sourceUri: Uri) {
         val bmp = loadSoftwareBitmapFromUri(context, sourceUri)
         if (bmp != null) {
-            if (localSeparateScreens && activeTab == 1) {
-                WallpaperState.setLockRestoreBitmap(context, bmp)
+            if (localSeparateScreens) {
+                if (activeTab == 1) {
+                    WallpaperState.setLockRestoreBitmap(context, bmp)
+                } else {
+                    WallpaperState.setHomeRestoreBitmap(context, bmp)
+                }
             } else {
                 WallpaperState.setUnifiedRestoreBitmap(context, bmp)
             }
@@ -200,16 +199,29 @@ fun MainScreen() {
             localLockConfig = newConfig
         } else {
             localHomeConfig = newConfig
+            if (!localSeparateScreens) {
+                localLockConfig = newConfig
+            }
         }
     }
 
     val homeRestoreBlur = remember(
         homeRestoreArt,
-        localHomeConfig.blurPercent,
+        localHomeConfig.restoreBlurPercent,
         localHomeConfig.applyEffectsToRestore
     ) {
-        if (localHomeConfig.applyEffectsToRestore && homeRestoreArt != null) {
-            WallpaperRenderer.getNormalBlur(homeRestoreArt!!, localHomeConfig.blurPercent)
+        if (localHomeConfig.applyEffectsToRestore && homeRestoreArt != null && localHomeConfig.restoreBlurPercent > 0) {
+            WallpaperRenderer.getNormalBlur(homeRestoreArt!!, localHomeConfig.restoreBlurPercent)
+        } else null
+    }
+
+    val homeMusicBlur = remember(
+        displayArt,
+        localHomeConfig.blurPercent,
+        localHomeConfig.effectType
+    ) {
+        if (localHomeConfig.effectType != ScreenConfig.EFFECT_STILL && localHomeConfig.blurPercent > 0) {
+            WallpaperRenderer.getNormalBlur(displayArt, localHomeConfig.blurPercent)
         } else null
     }
 
@@ -219,13 +231,11 @@ fun MainScreen() {
         previewShowingRestore,
         localHomeConfig,
         previewAnimProgress,
-        preparedHomeBlur,
+        homeMusicBlur,
         homeRestoreBlur
     ) {
         val mode = if (previewShowingRestore) localHomeConfig.restoreEffect else localHomeConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else homeRestoreArt
-        val blurBitmap = if (previewShowingRestore) null else (if (localHomeConfig.blurPercent == homeConfig.blurPercent) preparedHomeBlur else null) ?: displayArt
-        val restoreBlurBitmap = if (previewShowingRestore) homeRestoreBlur else null
         renderScreenPreview(
             art = displayArt,
             restore = homeRestoreArt,
@@ -234,8 +244,8 @@ fun MainScreen() {
             progress = previewAnimProgress,
             mode = mode,
             previous = previous,
-            preparedBlur = blurBitmap,
-            preparedRestoreBlur = restoreBlurBitmap
+            preparedBlur = homeMusicBlur,
+            preparedRestoreBlur = homeRestoreBlur
         )
     }
 
@@ -244,11 +254,21 @@ fun MainScreen() {
 
     val lockRestoreBlur = remember(
         effectiveLockRestore,
-        effectiveLockConfig.blurPercent,
+        effectiveLockConfig.restoreBlurPercent,
         effectiveLockConfig.applyEffectsToRestore
     ) {
-        if (effectiveLockConfig.applyEffectsToRestore && effectiveLockRestore != null) {
-            WallpaperRenderer.getNormalBlur(effectiveLockRestore!!, effectiveLockConfig.blurPercent)
+        if (effectiveLockConfig.applyEffectsToRestore && effectiveLockRestore != null && effectiveLockConfig.restoreBlurPercent > 0) {
+            WallpaperRenderer.getNormalBlur(effectiveLockRestore!!, effectiveLockConfig.restoreBlurPercent)
+        } else null
+    }
+
+    val lockMusicBlur = remember(
+        displayArt,
+        effectiveLockConfig.blurPercent,
+        effectiveLockConfig.effectType
+    ) {
+        if (effectiveLockConfig.effectType != ScreenConfig.EFFECT_STILL && effectiveLockConfig.blurPercent > 0) {
+            WallpaperRenderer.getNormalBlur(displayArt, effectiveLockConfig.blurPercent)
         } else null
     }
 
@@ -258,13 +278,11 @@ fun MainScreen() {
         previewShowingRestore,
         effectiveLockConfig,
         previewAnimProgress,
-        preparedLockBlur,
+        lockMusicBlur,
         lockRestoreBlur
     ) {
         val mode = if (previewShowingRestore) effectiveLockConfig.restoreEffect else effectiveLockConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else effectiveLockRestore
-        val blurBitmap = if (previewShowingRestore) null else (if (effectiveLockConfig.blurPercent == lockConfig.blurPercent) preparedLockBlur else null) ?: displayArt
-        val restoreBlurBitmap = if (previewShowingRestore) lockRestoreBlur else null
         renderScreenPreview(
             art = displayArt,
             restore = effectiveLockRestore,
@@ -273,8 +291,8 @@ fun MainScreen() {
             progress = previewAnimProgress,
             mode = mode,
             previous = previous,
-            preparedBlur = blurBitmap,
-            preparedRestoreBlur = restoreBlurBitmap
+            preparedBlur = lockMusicBlur,
+            preparedRestoreBlur = lockRestoreBlur
         )
     }
 
@@ -373,7 +391,7 @@ fun MainScreen() {
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = if (previewShowingRestore) "🖼️ Default" else "🎵 Music Blur",
+                                text = if (previewShowingRestore) "🖼️ Default" else "🎵 Music",
                                 fontSize = 11.sp
                             )
                         }
@@ -521,29 +539,166 @@ fun MainScreen() {
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Wallpaper Effect",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = "Choose how music artwork is displayed on ${if (localSeparateScreens && activeTab == 1) "Lock Screen" else "Home Screen"}",
+                        fontSize = 12.sp,
+                        color = Color.LightGray
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilterChip(
+                            selected = currentConfig.effectType == ScreenConfig.EFFECT_BLUR,
+                            onClick = { updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_BLUR)) },
+                            label = { Text("Blur", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = currentConfig.effectType == ScreenConfig.EFFECT_STILL,
+                            onClick = { updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_STILL)) },
+                            label = { Text("Still", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = currentConfig.effectType == ScreenConfig.EFFECT_BLUR_STILL,
+                            onClick = { updateCurrentConfig(currentConfig.copy(effectType = ScreenConfig.EFFECT_BLUR_STILL)) },
+                            label = { Text("Blur + Still", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
+                            modifier = Modifier.weight(1.2f)
+                        )
+                    }
+                }
+            }
+
+            if (currentConfig.effectType != ScreenConfig.EFFECT_BLUR) {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Text(
+                            text = "Music Still Artwork Controls",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp
+                        )
+
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Vertical Offset", fontSize = 13.sp)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val offsetText = when {
+                                        currentConfig.stillOffsetYPercent == 0 -> "Center (0%)"
+                                        currentConfig.stillOffsetYPercent < 0 -> "Up ${-currentConfig.stillOffsetYPercent}%"
+                                        else -> "Down ${currentConfig.stillOffsetYPercent}%"
+                                    }
+                                    Text(offsetText, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                                    if (currentConfig.stillOffsetYPercent != 0) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Reset",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.clickable {
+                                                updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = 0))
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            Slider(
+                                value = currentConfig.stillOffsetYPercent.toFloat(),
+                                onValueChange = {
+                                    updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = it.toInt()))
+                                },
+                                valueRange = -50f..50f
+                            )
+                        }
+
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Artwork Scale", fontSize = 13.sp)
+                                Text("${currentConfig.stillScalePercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                            }
+                            Slider(
+                                value = currentConfig.stillScalePercent.toFloat(),
+                                onValueChange = {
+                                    updateCurrentConfig(currentConfig.copy(stillScalePercent = it.toInt()))
+                                },
+                                valueRange = 30f..120f
+                            )
+                        }
+
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Corner Radius", fontSize = 13.sp)
+                                Text("${currentConfig.stillCornerRadiusPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                            }
+                            Slider(
+                                value = currentConfig.stillCornerRadiusPercent.toFloat(),
+                                onValueChange = {
+                                    updateCurrentConfig(currentConfig.copy(stillCornerRadiusPercent = it.toInt()))
+                                },
+                                valueRange = 0f..50f
+                            )
+                        }
+                    }
+                }
+            }
+
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Text(
-                        text = "Control Sliders",
+                        text = if (currentConfig.effectType == ScreenConfig.EFFECT_STILL) "Background Controls" else "Ambient Blur Controls",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
 
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Blur", fontSize = 13.sp)
-                            Text("${currentConfig.blurPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                    if (currentConfig.effectType != ScreenConfig.EFFECT_STILL) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Blur Intensity", fontSize = 13.sp)
+                                Text("${currentConfig.blurPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                            }
+                            Slider(
+                                value = currentConfig.blurPercent.toFloat(),
+                                onValueChange = {
+                                    updateCurrentConfig(currentConfig.copy(blurPercent = it.toInt()))
+                                },
+                                valueRange = 0f..100f
+                            )
                         }
-                        Slider(
-                            value = currentConfig.blurPercent.toFloat(),
-                            onValueChange = {
-                                updateCurrentConfig(currentConfig.copy(blurPercent = it.toInt()))
-                            },
-                            valueRange = 0f..100f
-                        )
                     }
 
                     Column {
@@ -574,9 +729,9 @@ fun MainScreen() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Restore Wallpaper (Default Wallpaper)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                    Text("Recover Wallpaper (Default Wallpaper)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                     Text(
-                        text = "Selecting an image opens the system wallpaper setter so you can position, zoom, and set dimensions exactly as you prefer.",
+                        text = "Selecting an image sets the restored wallpaper when playback stops. Pick separate wallpapers for Home and Lock screens.",
                         fontSize = 12.sp,
                         color = Color.LightGray
                     )
@@ -586,14 +741,22 @@ fun MainScreen() {
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Column(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    homePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                },
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(width = 75.dp, height = 120.dp)
                                     .clip(RoundedCornerShape(10.dp))
-                                    .border(1.dp, Color(0xFF444455), RoundedCornerShape(10.dp))
+                                    .border(
+                                        width = if (activeTab == 0) 2.dp else 1.dp,
+                                        color = if (activeTab == 0) MaterialTheme.colorScheme.primary else Color(0xFF444455),
+                                        shape = RoundedCornerShape(10.dp)
+                                    )
                                     .background(Color.DarkGray),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -604,7 +767,7 @@ fun MainScreen() {
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 } else {
-                                    Text("Default", fontSize = 10.sp, color = Color.Gray)
+                                    Text("Pick Home", fontSize = 10.sp, color = Color.Gray)
                                 }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
@@ -613,14 +776,22 @@ fun MainScreen() {
 
                         if (localSeparateScreens) {
                             Column(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable {
+                                        lockPhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    },
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Box(
                                     modifier = Modifier
                                         .size(width = 75.dp, height = 120.dp)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .border(1.dp, Color(0xFF444455), RoundedCornerShape(10.dp))
+                                        .border(
+                                            width = if (activeTab == 1) 2.dp else 1.dp,
+                                            color = if (activeTab == 1) MaterialTheme.colorScheme.primary else Color(0xFF444455),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
                                         .background(Color.DarkGray),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -632,7 +803,7 @@ fun MainScreen() {
                                             modifier = Modifier.fillMaxSize()
                                         )
                                     } else {
-                                        Text("Default", fontSize = 10.sp, color = Color.Gray)
+                                        Text("Pick Lock", fontSize = 10.sp, color = Color.Gray)
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -673,9 +844,9 @@ fun MainScreen() {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Apply effects to Restore", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Apply effects to Recover Wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             Text(
-                                text = "Apply the same blur and effects to the default restore wallpaper",
+                                text = "Apply customizable blur and dimming to the default recover wallpaper",
                                 fontSize = 11.sp,
                                 color = Color.LightGray
                             )
@@ -687,6 +858,42 @@ fun MainScreen() {
                             },
                             modifier = Modifier.scale(0.85f)
                         )
+                    }
+
+                    if (currentConfig.applyEffectsToRestore) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Recover Blur Intensity", fontSize = 13.sp)
+                                Text("${currentConfig.restoreBlurPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                            }
+                            Slider(
+                                value = currentConfig.restoreBlurPercent.toFloat(),
+                                onValueChange = {
+                                    updateCurrentConfig(currentConfig.copy(restoreBlurPercent = it.toInt()))
+                                },
+                                valueRange = 0f..100f
+                            )
+                        }
+
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Recover Dimming", fontSize = 13.sp)
+                                Text("${currentConfig.restoreDimPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                            }
+                            Slider(
+                                value = currentConfig.restoreDimPercent.toFloat(),
+                                onValueChange = {
+                                    updateCurrentConfig(currentConfig.copy(restoreDimPercent = it.toInt()))
+                                },
+                                valueRange = 0f..80f
+                            )
+                        }
                     }
 
                     Row(
@@ -963,7 +1170,9 @@ fun renderScreenPreview(
         transitionMode = mode,
         previousBitmap = previous,
         preparedBlur = preparedBlur,
-        preparedRestoreBlur = preparedRestoreBlur
+        preparedRestoreBlur = preparedRestoreBlur,
+        xOffset = 0.5f,
+        displayWidth = pw
     )
     return bmp
 }

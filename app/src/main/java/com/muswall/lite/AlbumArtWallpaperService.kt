@@ -1,12 +1,14 @@
 package com.muswall.lite
 
 import android.app.KeyguardManager
+import android.app.WallpaperManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
@@ -274,10 +276,27 @@ class AlbumArtWallpaperService : WallpaperService() {
             renderDirect()
         }
 
+        override fun onWallpaperFlagsChanged(which: Int) {
+            super.onWallpaperFlagsChanged(which)
+            updateKeyguardState(forceRender = true)
+        }
+
         private fun updateKeyguardState(forceRender: Boolean = true) {
             try {
-                val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-                val isLocked = km?.isKeyguardLocked ?: false
+                val isLocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    val flags = try { wallpaperFlags } catch (_: Exception) { 0 }
+                    if (flags == WallpaperManager.FLAG_LOCK) {
+                        true
+                    } else if (flags == WallpaperManager.FLAG_SYSTEM) {
+                        false
+                    } else {
+                        val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                        km?.isKeyguardLocked ?: false
+                    }
+                } else {
+                    val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+                    km?.isKeyguardLocked ?: false
+                }
                 val changed = (cachedIsLocked != isLocked)
                 cachedIsLocked = isLocked
                 if (forceRender && changed && WallpaperState.separateScreens.value && isVisibleState) {

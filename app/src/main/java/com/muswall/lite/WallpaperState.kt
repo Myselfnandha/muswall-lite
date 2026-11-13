@@ -19,14 +19,24 @@ import java.io.File
 import java.io.FileOutputStream
 
 data class ScreenConfig(
+    val effectType: Int = EFFECT_BLUR,
     val blurPercent: Int = 45,
     val dimPercent: Int = 20,
+    val stillScalePercent: Int = 80,
+    val stillOffsetYPercent: Int = 0,
+    val stillCornerRadiusPercent: Int = 12,
     val applyEffect: Int = TRANSITION_FADE,
     val restoreEffect: Int = TRANSITION_FADE,
     val restoreDelaySeconds: Int = 30,
-    val applyEffectsToRestore: Boolean = false
+    val applyEffectsToRestore: Boolean = false,
+    val restoreBlurPercent: Int = 45,
+    val restoreDimPercent: Int = 20
 ) {
     companion object {
+        const val EFFECT_BLUR = 0
+        const val EFFECT_STILL = 1
+        const val EFFECT_BLUR_STILL = 2
+
         const val TRANSITION_FADE = 0
         const val TRANSITION_ZOOM = 1
         const val TRANSITION_SLIDE_UP = 2
@@ -244,28 +254,33 @@ object WallpaperState {
         precomputeJob?.cancel()
         precomputeJob = scope.launch(Dispatchers.Default) {
             val art = _currentArt.value
-            val homeBlurPct = _homeConfig.value.blurPercent
-            val lockBlurPct = _lockConfig.value.blurPercent
+            val home = _homeConfig.value
+            val lock = _lockConfig.value
 
             if (art != null) {
-                _preparedHomeBlur.value = WallpaperRenderer.getNormalBlur(art, homeBlurPct)
-                if (_separateScreens.value && lockBlurPct != homeBlurPct) {
-                    _preparedLockBlur.value = WallpaperRenderer.getNormalBlur(art, lockBlurPct)
+                _preparedHomeBlur.value = if (home.effectType != ScreenConfig.EFFECT_STILL && home.blurPercent > 0) {
+                    WallpaperRenderer.getNormalBlur(art, home.blurPercent)
+                } else null
+
+                if (_separateScreens.value && (lock.effectType != home.effectType || lock.blurPercent != home.blurPercent)) {
+                    _preparedLockBlur.value = if (lock.effectType != ScreenConfig.EFFECT_STILL && lock.blurPercent > 0) {
+                        WallpaperRenderer.getNormalBlur(art, lock.blurPercent)
+                    } else null
                 } else {
                     _preparedLockBlur.value = _preparedHomeBlur.value
                 }
             }
 
             val homeRestore = _homeRestoreArt.value
-            if (homeRestore != null && _homeConfig.value.applyEffectsToRestore) {
-                _preparedHomeRestoreBlur.value = WallpaperRenderer.getNormalBlur(homeRestore, homeBlurPct)
+            if (homeRestore != null && home.applyEffectsToRestore && home.restoreBlurPercent > 0) {
+                _preparedHomeRestoreBlur.value = WallpaperRenderer.getNormalBlur(homeRestore, home.restoreBlurPercent)
             } else {
                 _preparedHomeRestoreBlur.value = null
             }
 
-            val lockRestore = _lockRestoreArt.value ?: homeRestore
-            if (lockRestore != null && _lockConfig.value.applyEffectsToRestore) {
-                _preparedLockRestoreBlur.value = WallpaperRenderer.getNormalBlur(lockRestore, lockBlurPct)
+            val lockRestore = if (_separateScreens.value) (_lockRestoreArt.value ?: homeRestore) else homeRestore
+            if (lockRestore != null && lock.applyEffectsToRestore && lock.restoreBlurPercent > 0) {
+                _preparedLockRestoreBlur.value = WallpaperRenderer.getNormalBlur(lockRestore, lock.restoreBlurPercent)
             } else {
                 _preparedLockRestoreBlur.value = null
             }
@@ -281,23 +296,35 @@ object WallpaperState {
 
     private fun readConfig(prefs: SharedPreferences, prefix: String): ScreenConfig {
         return ScreenConfig(
+            effectType = prefs.getInt("${prefix}_effect_type", ScreenConfig.EFFECT_BLUR),
             blurPercent = prefs.getInt("${prefix}_blur_percent", 45),
             dimPercent = prefs.getInt("${prefix}_dim_percent", 20),
+            stillScalePercent = prefs.getInt("${prefix}_still_scale_percent", 80),
+            stillOffsetYPercent = prefs.getInt("${prefix}_still_offset_y_percent", 0),
+            stillCornerRadiusPercent = prefs.getInt("${prefix}_still_corner_radius_percent", 12),
             applyEffect = prefs.getInt("${prefix}_apply_effect", ScreenConfig.TRANSITION_FADE),
             restoreEffect = prefs.getInt("${prefix}_restore_effect", ScreenConfig.TRANSITION_FADE),
             restoreDelaySeconds = prefs.getInt("${prefix}_restore_delay", 30),
-            applyEffectsToRestore = prefs.getBoolean("${prefix}_apply_effects_to_restore", false)
+            applyEffectsToRestore = prefs.getBoolean("${prefix}_apply_effects_to_restore", false),
+            restoreBlurPercent = prefs.getInt("${prefix}_restore_blur_percent", 45),
+            restoreDimPercent = prefs.getInt("${prefix}_restore_dim_percent", 20)
         )
     }
 
     private fun saveConfig(context: Context, prefix: String, config: ScreenConfig) {
         getPrefs(context).edit().apply {
+            putInt("${prefix}_effect_type", config.effectType)
             putInt("${prefix}_blur_percent", config.blurPercent)
             putInt("${prefix}_dim_percent", config.dimPercent)
+            putInt("${prefix}_still_scale_percent", config.stillScalePercent)
+            putInt("${prefix}_still_offset_y_percent", config.stillOffsetYPercent)
+            putInt("${prefix}_still_corner_radius_percent", config.stillCornerRadiusPercent)
             putInt("${prefix}_apply_effect", config.applyEffect)
             putInt("${prefix}_restore_effect", config.restoreEffect)
             putInt("${prefix}_restore_delay", config.restoreDelaySeconds)
             putBoolean("${prefix}_apply_effects_to_restore", config.applyEffectsToRestore)
+            putInt("${prefix}_restore_blur_percent", config.restoreBlurPercent)
+            putInt("${prefix}_restore_dim_percent", config.restoreDimPercent)
             apply()
         }
     }
