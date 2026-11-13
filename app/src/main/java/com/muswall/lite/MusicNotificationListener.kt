@@ -101,6 +101,14 @@ class MusicNotificationListener : NotificationListenerService() {
 
     private fun findAndAttachController(controllers: List<MediaController>?) {
         if (controllers.isNullOrEmpty()) {
+            if (activeController != null) {
+                activeController?.unregisterCallback(callback)
+                activeController = null
+            }
+            if (lastPlayingState) {
+                lastPlayingState = false
+                WallpaperState.updateMedia(applicationContext, lastExtractedArt, false, lastTrackTitle)
+            }
             return
         }
 

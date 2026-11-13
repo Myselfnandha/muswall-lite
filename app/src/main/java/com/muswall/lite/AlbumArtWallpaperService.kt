@@ -109,13 +109,13 @@ class AlbumArtWallpaperService : WallpaperService() {
             registerReceiver(screenReceiver, filter)
 
             updateKeyguardState(forceRender = false)
-            lastRestoreState = WallpaperState.isRestoreActive.value
+            lastRestoreState = WallpaperState.isRestoreActive(cachedIsLocked)
             lastRenderedArt = WallpaperState.currentArt.value
             lastRenderedBlur = WallpaperState.getPreparedBlur(cachedIsLocked)
 
             scope.launch {
                 WallpaperState.currentArt.collect { newArt ->
-                    val isRestored = WallpaperState.isRestoreActive.value
+                    val isRestored = WallpaperState.isRestoreActive(cachedIsLocked)
                     val artChanged = when {
                         newArt == null && lastRenderedArt != null -> true
                         newArt != null && lastRenderedArt == null -> true
@@ -146,32 +146,24 @@ class AlbumArtWallpaperService : WallpaperService() {
             }
 
             scope.launch {
-                WallpaperState.isRestoreActive.collect { isRestored ->
-                    if (isRestored != lastRestoreState) {
-                        lastRestoreState = isRestored
-                        val currentArt = WallpaperState.currentArt.value
-                        val restoreArt = WallpaperState.getRestoreArt(cachedIsLocked)
-                        val currentBlur = WallpaperState.getPreparedBlur(cachedIsLocked)
+                WallpaperState.isHomeRestoreActive.collect { isRestored ->
+                    if (!cachedIsLocked && isRestored != lastRestoreState) {
+                        handleRestoreStateChange(isRestored)
+                    }
+                }
+            }
 
-                        if (isVisibleState) {
-                            if (isRestored) {
-                                previousBitmap = currentBlur ?: currentArt ?: restoreArt
-                                triggerRestoreTransition()
-                            } else {
-                                previousBitmap = restoreArt ?: currentBlur ?: currentArt
-                                triggerApplyTransition()
-                            }
-                        } else {
-                            transitionProgress = 1f
-                            previousBitmap = null
-                        }
+            scope.launch {
+                WallpaperState.isLockRestoreActive.collect { isRestored ->
+                    if (cachedIsLocked && isRestored != lastRestoreState) {
+                        handleRestoreStateChange(isRestored)
                     }
                 }
             }
 
             scope.launch {
                 WallpaperState.homeRestoreArt.collect {
-                    if (WallpaperState.isRestoreActive.value && !cachedIsLocked && isVisibleState) {
+                    if (WallpaperState.isRestoreActive(cachedIsLocked) && !cachedIsLocked && isVisibleState) {
                         scheduleRender()
                     }
                 }
@@ -179,7 +171,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.lockRestoreArt.collect {
-                    if (WallpaperState.isRestoreActive.value && cachedIsLocked && isVisibleState) {
+                    if (WallpaperState.isRestoreActive(cachedIsLocked) && cachedIsLocked && isVisibleState) {
                         scheduleRender()
                     }
                 }
@@ -187,7 +179,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.preparedHomeBlur.collect { blur ->
-                    if (!WallpaperState.isRestoreActive.value && !cachedIsLocked) {
+                    if (!WallpaperState.isRestoreActive(cachedIsLocked) && !cachedIsLocked) {
                         lastRenderedBlur = blur
                         if (isVisibleState) scheduleRender()
                     }
@@ -196,7 +188,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.preparedLockBlur.collect { blur ->
-                    if (!WallpaperState.isRestoreActive.value && cachedIsLocked) {
+                    if (!WallpaperState.isRestoreActive(cachedIsLocked) && cachedIsLocked) {
                         lastRenderedBlur = blur
                         if (isVisibleState) scheduleRender()
                     }
@@ -205,7 +197,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.preparedHomeRestoreBlur.collect {
-                    if (WallpaperState.isRestoreActive.value && !cachedIsLocked && isVisibleState) {
+                    if (WallpaperState.isRestoreActive(cachedIsLocked) && !cachedIsLocked && isVisibleState) {
                         scheduleRender()
                     }
                 }
@@ -213,7 +205,7 @@ class AlbumArtWallpaperService : WallpaperService() {
 
             scope.launch {
                 WallpaperState.preparedLockRestoreBlur.collect {
-                    if (WallpaperState.isRestoreActive.value && cachedIsLocked && isVisibleState) {
+                    if (WallpaperState.isRestoreActive(cachedIsLocked) && cachedIsLocked && isVisibleState) {
                         scheduleRender()
                     }
                 }
@@ -223,6 +215,26 @@ class AlbumArtWallpaperService : WallpaperService() {
                 WallpaperState.settingsChanged.collect {
                     if (isVisibleState) scheduleRender()
                 }
+            }
+        }
+
+        private fun handleRestoreStateChange(isRestored: Boolean) {
+            lastRestoreState = isRestored
+            val currentArt = WallpaperState.currentArt.value
+            val restoreArt = WallpaperState.getRestoreArt(cachedIsLocked)
+            val currentBlur = WallpaperState.getPreparedBlur(cachedIsLocked)
+
+            if (isVisibleState) {
+                if (isRestored) {
+                    previousBitmap = currentBlur ?: currentArt ?: restoreArt
+                    triggerRestoreTransition()
+                } else {
+                    previousBitmap = restoreArt ?: currentBlur ?: currentArt
+                    triggerApplyTransition()
+                }
+            } else {
+                transitionProgress = 1f
+                previousBitmap = null
             }
         }
 
@@ -383,7 +395,7 @@ class AlbumArtWallpaperService : WallpaperService() {
             val context: Context = this@AlbumArtWallpaperService
             val currentArt = WallpaperState.currentArt.value
             val restoreArt = WallpaperState.getRestoreArt(isLockScreen = cachedIsLocked)
-            val isRestoreActive = WallpaperState.isRestoreActive.value
+            val isRestoreActive = WallpaperState.isRestoreActive(isLockScreen = cachedIsLocked)
             val config = WallpaperState.getEffectiveConfig(context, isLockScreen = cachedIsLocked)
             val preparedBlur = WallpaperState.getPreparedBlur(isLockScreen = cachedIsLocked)
             val preparedRestoreBlur = WallpaperState.getPreparedRestoreBlur(isLockScreen = cachedIsLocked)

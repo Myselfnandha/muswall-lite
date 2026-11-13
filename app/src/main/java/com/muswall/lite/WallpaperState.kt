@@ -23,14 +23,15 @@ data class ScreenConfig(
     val blurPercent: Int = 45,
     val dimPercent: Int = 20,
     val stillScalePercent: Int = 80,
-    val stillOffsetYPercent: Int = -25,
+    val stillOffsetYPercent: Int = -35,
     val stillCornerRadiusPercent: Int = 12,
     val applyEffect: Int = TRANSITION_FADE,
     val restoreEffect: Int = TRANSITION_FADE,
     val restoreDelaySeconds: Int = 30,
     val applyEffectsToRestore: Boolean = false,
     val restoreBlurPercent: Int = 45,
-    val restoreDimPercent: Int = 20
+    val restoreDimPercent: Int = 20,
+    val wallpaperOffsetYPercent: Int = 0
 ) {
     companion object {
         const val EFFECT_BLUR = 0
@@ -53,7 +54,8 @@ object WallpaperState {
     private const val LOCK_RESTORE_IMAGE = "lock_restore_wallpaper.png"
 
     private val scope = CoroutineScope(Dispatchers.Default + Job())
-    private var restoreJob: Job? = null
+    private var homeRestoreJob: Job? = null
+    private var lockRestoreJob: Job? = null
     private var precomputeJob: Job? = null
 
     private val _currentArt = MutableStateFlow<Bitmap?>(null)
@@ -77,8 +79,21 @@ object WallpaperState {
     private val _preparedLockRestoreBlur = MutableStateFlow<Bitmap?>(null)
     val preparedLockRestoreBlur = _preparedLockRestoreBlur.asStateFlow()
 
-    private val _isRestoreActive = MutableStateFlow(true)
-    val isRestoreActive = _isRestoreActive.asStateFlow()
+    private val _isHomeRestoreActive = MutableStateFlow(true)
+    val isHomeRestoreActive = _isHomeRestoreActive.asStateFlow()
+
+    private val _isLockRestoreActive = MutableStateFlow(true)
+    val isLockRestoreActive = _isLockRestoreActive.asStateFlow()
+
+    val isRestoreActive = _isHomeRestoreActive.asStateFlow()
+
+    fun isRestoreActive(isLockScreen: Boolean): Boolean {
+        return if (_separateScreens.value && isLockScreen) {
+            _isLockRestoreActive.value
+        } else {
+            _isHomeRestoreActive.value
+        }
+    }
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying = _isPlaying.asStateFlow()
@@ -102,7 +117,8 @@ object WallpaperState {
         loadConfigs(context)
         loadRestoreImages(context)
         if (!_isPlaying.value) {
-            _isRestoreActive.value = true
+            _isHomeRestoreActive.value = true
+            _isLockRestoreActive.value = true
         }
     }
 
@@ -123,23 +139,50 @@ object WallpaperState {
         _isPlaying.value = playing
         _trackTitle.value = title
 
-        val config = getEffectiveConfig(context, isLockScreen = false)
-
         if (playing) {
-            restoreJob?.cancel()
-            restoreJob = null
-            _isRestoreActive.value = false
+            homeRestoreJob?.cancel()
+            homeRestoreJob = null
+            lockRestoreJob?.cancel()
+            lockRestoreJob = null
+            _isHomeRestoreActive.value = false
+            _isLockRestoreActive.value = false
         } else {
-            if (config.restoreDelaySeconds == -1) {
-                _isRestoreActive.value = false
-            } else if (config.restoreDelaySeconds == 0) {
-                _isRestoreActive.value = true
-            } else if (!_isRestoreActive.value && restoreJob == null) {
-                restoreJob = scope.launch {
-                    delay(config.restoreDelaySeconds * 1000L)
-                    _isRestoreActive.value = true
-                    restoreJob = null
+            armRestoreJob(false)
+            if (_separateScreens.value) {
+                armRestoreJob(true)
+            } else {
+                _isLockRestoreActive.value = _isHomeRestoreActive.value
+            }
+        }
+    }
+
+    private fun armRestoreJob(isLockScreen: Boolean) {
+        val config = if (_separateScreens.value && isLockScreen) _lockConfig.value else _homeConfig.value
+        val flow = if (_separateScreens.value && isLockScreen) _isLockRestoreActive else _isHomeRestoreActive
+
+        if (isLockScreen) {
+            lockRestoreJob?.cancel()
+            lockRestoreJob = null
+        } else {
+            homeRestoreJob?.cancel()
+            homeRestoreJob = null
+        }
+
+        when (config.restoreDelaySeconds) {
+            -1 -> {
+                flow.value = false
+            }
+            0 -> {
+                flow.value = true
+            }
+            else -> {
+                val delayMs = config.restoreDelaySeconds * 1000L
+                val job = scope.launch {
+                    delay(delayMs)
+                    flow.value = true
+                    if (isLockScreen) lockRestoreJob = null else homeRestoreJob = null
                 }
+                if (isLockScreen) lockRestoreJob = job else homeRestoreJob = job
             }
         }
     }
@@ -186,14 +229,22 @@ object WallpaperState {
     }
 
     fun updateHomeConfig(context: Context, config: ScreenConfig) {
+        val delayChanged = _homeConfig.value.restoreDelaySeconds != config.restoreDelaySeconds
         _homeConfig.value = config
         saveConfig(context, "home", config)
+        if (!_isPlaying.value && delayChanged) {
+            armRestoreJob(false)
+        }
         notifySettingsChanged()
     }
 
     fun updateLockConfig(context: Context, config: ScreenConfig) {
+        val delayChanged = _lockConfig.value.restoreDelaySeconds != config.restoreDelaySeconds
         _lockConfig.value = config
         saveConfig(context, "lock", config)
+        if (!_isPlaying.value && delayChanged && _separateScreens.value) {
+            armRestoreJob(true)
+        }
         notifySettingsChanged()
     }
 
@@ -300,14 +351,15 @@ object WallpaperState {
             blurPercent = prefs.getInt("${prefix}_blur_percent", 45),
             dimPercent = prefs.getInt("${prefix}_dim_percent", 20),
             stillScalePercent = prefs.getInt("${prefix}_still_scale_percent", 80),
-            stillOffsetYPercent = prefs.getInt("${prefix}_still_offset_y_percent", -25),
+            stillOffsetYPercent = prefs.getInt("${prefix}_still_offset_y_percent", -35),
             stillCornerRadiusPercent = prefs.getInt("${prefix}_still_corner_radius_percent", 12),
             applyEffect = prefs.getInt("${prefix}_apply_effect", ScreenConfig.TRANSITION_FADE),
             restoreEffect = prefs.getInt("${prefix}_restore_effect", ScreenConfig.TRANSITION_FADE),
             restoreDelaySeconds = prefs.getInt("${prefix}_restore_delay", 30),
             applyEffectsToRestore = prefs.getBoolean("${prefix}_apply_effects_to_restore", false),
             restoreBlurPercent = prefs.getInt("${prefix}_restore_blur_percent", 45),
-            restoreDimPercent = prefs.getInt("${prefix}_restore_dim_percent", 20)
+            restoreDimPercent = prefs.getInt("${prefix}_restore_dim_percent", 20),
+            wallpaperOffsetYPercent = prefs.getInt("${prefix}_wallpaper_offset_y_percent", 0)
         )
     }
 
@@ -325,6 +377,7 @@ object WallpaperState {
             putBoolean("${prefix}_apply_effects_to_restore", config.applyEffectsToRestore)
             putInt("${prefix}_restore_blur_percent", config.restoreBlurPercent)
             putInt("${prefix}_restore_dim_percent", config.restoreDimPercent)
+            putInt("${prefix}_wallpaper_offset_y_percent", config.wallpaperOffsetYPercent)
             apply()
         }
     }

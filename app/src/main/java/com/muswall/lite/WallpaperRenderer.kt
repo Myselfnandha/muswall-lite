@@ -64,7 +64,7 @@ object WallpaperRenderer {
         val screenCenterX = screenLeft + (visibleW / 2f)
 
         if (progress < 1f && previousBitmap != null && !previousBitmap.isRecycled) {
-            drawFullBleed(canvas, previousBitmap, width, height, visibleW, 1f, screenCenterX)
+            drawFullBleed(canvas, previousBitmap, width, height, visibleW, 1f, screenCenterX, config.wallpaperOffsetYPercent)
         } else if (targetArt == null) {
             drawFallbackBackground(canvas, width, height)
             return
@@ -97,21 +97,21 @@ object WallpaperRenderer {
             if (isRestoreActive) {
                 if (config.applyEffectsToRestore) {
                     if (config.restoreBlurPercent > 0) {
-                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.restoreBlurPercent, progress, preparedRestoreBlur, screenCenterX)
+                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.restoreBlurPercent, progress, preparedRestoreBlur, screenCenterX, config.wallpaperOffsetYPercent)
                     } else {
-                        drawFullBleed(canvas, targetArt, width, height, visibleW, progress, screenCenterX)
+                        drawFullBleed(canvas, targetArt, width, height, visibleW, progress, screenCenterX, config.wallpaperOffsetYPercent)
                     }
                     applyDimming(canvas, width, height, config.restoreDimPercent)
                 } else {
-                    drawFullBleed(canvas, targetArt, width, height, visibleW, progress, screenCenterX)
+                    drawFullBleed(canvas, targetArt, width, height, visibleW, progress, screenCenterX, config.wallpaperOffsetYPercent)
                 }
             } else {
                 when (config.effectType) {
                     ScreenConfig.EFFECT_BLUR -> {
                         if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE && progress < 1f) {
-                            drawFullBleed(canvas, targetArt, width, height, visibleW, 1f - progress, screenCenterX)
+                            drawFullBleed(canvas, targetArt, width, height, visibleW, 1f - progress, screenCenterX, config.wallpaperOffsetYPercent)
                         }
-                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX)
+                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX, config.wallpaperOffsetYPercent)
                         applyDimming(canvas, width, height, config.dimPercent)
                     }
                     ScreenConfig.EFFECT_STILL -> {
@@ -120,12 +120,12 @@ object WallpaperRenderer {
                         drawStill(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
                     }
                     ScreenConfig.EFFECT_BLUR_STILL -> {
-                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX)
+                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX, config.wallpaperOffsetYPercent)
                         applyDimming(canvas, width, height, config.dimPercent)
                         drawStill(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
                     }
                     else -> {
-                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX)
+                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX, config.wallpaperOffsetYPercent)
                         applyDimming(canvas, width, height, config.dimPercent)
                     }
                 }
@@ -144,12 +144,13 @@ object WallpaperRenderer {
         blurPercent: Int,
         progress: Float,
         preparedFallback: Bitmap?,
-        centerX: Float
+        centerX: Float,
+        offsetYPercent: Int = 0
     ) {
         if (preparedFallback != null && !preparedFallback.isRecycled) {
-            drawFullBleed(canvas, preparedFallback, width, height, visibleW, progress, centerX)
+            drawFullBleed(canvas, preparedFallback, width, height, visibleW, progress, centerX, offsetYPercent)
         } else {
-            drawBlur(canvas, art, width, height, visibleW, blurPercent, progress, centerX)
+            drawBlur(canvas, art, width, height, visibleW, blurPercent, progress, centerX, offsetYPercent)
         }
     }
 
@@ -165,7 +166,8 @@ object WallpaperRenderer {
         targetHeight: Int,
         visibleWidth: Float,
         progress: Float,
-        centerX: Float = targetWidth / 2f
+        centerX: Float = targetWidth / 2f,
+        offsetYPercent: Int = 0
     ) {
         if (src.isRecycled) return
         val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
@@ -177,7 +179,9 @@ object WallpaperRenderer {
         val scaledH = scale * src.height
 
         val left = centerX - (scaledW / 2f)
-        val top = (targetHeight - scaledH) / 2f
+        val normY = ((offsetYPercent + 100f) / 200f).coerceIn(0f, 1f)
+        val availableY = targetHeight - scaledH
+        val top = availableY * normY
 
         renderMatrix.reset()
         renderMatrix.postScale(scale, scale)
@@ -260,17 +264,18 @@ object WallpaperRenderer {
         visibleWidth: Float,
         blurPercent: Int,
         progress: Float,
-        centerX: Float
+        centerX: Float,
+        offsetYPercent: Int = 0
     ) {
         if (src.isRecycled) return
         if (blurPercent <= 0) {
-            drawFullBleed(canvas, src, targetWidth, targetHeight, visibleWidth, progress, centerX)
+            drawFullBleed(canvas, src, targetWidth, targetHeight, visibleWidth, progress, centerX, offsetYPercent)
             return
         }
         val blurred = getNormalBlur(src, blurPercent)
         if (blurred.isRecycled) return
 
-        drawFullBleed(canvas, blurred, targetWidth, targetHeight, visibleWidth, progress, centerX)
+        drawFullBleed(canvas, blurred, targetWidth, targetHeight, visibleWidth, progress, centerX, offsetYPercent)
     }
 
     private fun applyDimming(canvas: Canvas, width: Int, height: Int, dimPercent: Int) {

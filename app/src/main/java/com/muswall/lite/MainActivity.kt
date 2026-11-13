@@ -199,26 +199,26 @@ fun MainScreen() {
 
     val currentConfig = if (localSeparateScreens && activeTab == 1) localLockConfig else localHomeConfig
 
-    fun updateCurrentConfig(newConfig: ScreenConfig) {
-        if (localSeparateScreens && activeTab == 1) {
-            localLockConfig = newConfig
-        } else {
-            localHomeConfig = newConfig
-            if (!localSeparateScreens) {
-                localLockConfig = newConfig
-            }
-        }
-    }
-
     fun updateHomeConfig(newConfig: ScreenConfig) {
         localHomeConfig = newConfig
+        WallpaperState.updateHomeConfig(context, newConfig)
         if (!localSeparateScreens) {
             localLockConfig = newConfig
+            WallpaperState.updateLockConfig(context, newConfig)
         }
     }
 
     fun updateLockConfig(newConfig: ScreenConfig) {
         localLockConfig = newConfig
+        WallpaperState.updateLockConfig(context, newConfig)
+    }
+
+    fun updateCurrentConfig(newConfig: ScreenConfig) {
+        if (localSeparateScreens && activeTab == 1) {
+            updateLockConfig(newConfig)
+        } else {
+            updateHomeConfig(newConfig)
+        }
     }
 
     val homeRestoreBlur = remember(
@@ -356,7 +356,10 @@ fun MainScreen() {
                         Spacer(modifier = Modifier.width(6.dp))
                         Switch(
                             checked = localSeparateScreens,
-                            onCheckedChange = { localSeparateScreens = it },
+                            onCheckedChange = {
+                                localSeparateScreens = it
+                                WallpaperState.setSeparateScreens(context, it)
+                            },
                             modifier = Modifier.scale(0.8f)
                         )
                     }
@@ -612,6 +615,7 @@ fun MainScreen() {
                         )
 
                         Column {
+                            val safeZoneOffset = if (localSeparateScreens && activeTab == 1) 35 else -35
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -620,20 +624,21 @@ fun MainScreen() {
                                 Text("Vertical Position", fontSize = 13.sp)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val offsetText = when {
+                                        currentConfig.stillOffsetYPercent == safeZoneOffset -> "Safe Zone (${if (safeZoneOffset < 0) "" else "+"}${safeZoneOffset}%)"
                                         currentConfig.stillOffsetYPercent == -25 -> "Upper (-25%)"
                                         currentConfig.stillOffsetYPercent == 0 -> "Center (0%)"
                                         currentConfig.stillOffsetYPercent < 0 -> "Up ${-currentConfig.stillOffsetYPercent}%"
-                                        else -> "Down ${currentConfig.stillOffsetYPercent}%"
+                                        else -> "Down +${currentConfig.stillOffsetYPercent}%"
                                     }
                                     Text(offsetText, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
-                                    if (currentConfig.stillOffsetYPercent != -25) {
+                                    if (currentConfig.stillOffsetYPercent != safeZoneOffset) {
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "Default",
+                                            text = "Auto",
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.secondary,
                                             modifier = Modifier.clickable {
-                                                updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = -25))
+                                                updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = safeZoneOffset))
                                             }
                                         )
                                     }
@@ -648,9 +653,10 @@ fun MainScreen() {
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 listOf(
+                                    "✨ Safe Zone" to safeZoneOffset,
                                     "Top" to -75,
                                     "Upper" to -25,
                                     "Center" to 0,
@@ -662,14 +668,14 @@ fun MainScreen() {
                                         color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                         border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
                                         modifier = Modifier
-                                            .weight(1f)
+                                            .weight(if (label.startsWith("✨")) 1.4f else 1f)
                                             .clickable {
                                                 updateCurrentConfig(currentConfig.copy(stillOffsetYPercent = value))
                                             }
                                     ) {
                                         Text(
                                             text = label,
-                                            fontSize = 11.sp,
+                                            fontSize = 10.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = TextAlign.Center,
@@ -766,6 +772,84 @@ fun MainScreen() {
                             },
                             valueRange = 0f..80f
                         )
+                    }
+                }
+            }
+
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "Wallpaper Framing & Alignment",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Text(
+                        text = "Adjust vertical framing of background wallpaper on ${if (localSeparateScreens && activeTab == 1) "Lock Screen" else "Home Screen"}",
+                        fontSize = 12.sp,
+                        color = Color.LightGray
+                    )
+
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Vertical Framing", fontSize = 13.sp)
+                            val alignLabel = when {
+                                currentConfig.wallpaperOffsetYPercent == 0 -> "Center (0%)"
+                                currentConfig.wallpaperOffsetYPercent <= -70 -> "Top Focus (${currentConfig.wallpaperOffsetYPercent}%)"
+                                currentConfig.wallpaperOffsetYPercent >= 70 -> "Bottom Focus (+${currentConfig.wallpaperOffsetYPercent}%)"
+                                currentConfig.wallpaperOffsetYPercent < 0 -> "Up ${-currentConfig.wallpaperOffsetYPercent}%"
+                                else -> "Down +${currentConfig.wallpaperOffsetYPercent}%"
+                            }
+                            Text(alignLabel, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                        }
+                        Slider(
+                            value = currentConfig.wallpaperOffsetYPercent.toFloat(),
+                            onValueChange = {
+                                updateCurrentConfig(currentConfig.copy(wallpaperOffsetYPercent = it.toInt()))
+                            },
+                            valueRange = -100f..100f
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf(
+                                "Top Focus" to -80,
+                                "Center" to 0,
+                                "Bottom Focus" to 80
+                            ).forEach { (label, value) ->
+                                val isSelected = currentConfig.wallpaperOffsetYPercent == value
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            updateCurrentConfig(currentConfig.copy(wallpaperOffsetYPercent = value))
+                                        }
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center,
+                                        modifier = Modifier.padding(vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
