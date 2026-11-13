@@ -278,6 +278,13 @@ class AlbumArtWallpaperService : WallpaperService() {
             super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset)
             val changed = (currentXOffset != xOffset)
             currentXOffset = xOffset
+            if (cachedIsLocked) {
+                cachedIsLocked = false
+                if (WallpaperState.separateScreens.value && isVisibleState) {
+                    scheduleRender()
+                    return
+                }
+            }
             if (changed && isVisibleState && surfaceWidth > displayWidth) {
                 scheduleRender()
             }
@@ -290,11 +297,26 @@ class AlbumArtWallpaperService : WallpaperService() {
 
         override fun onWallpaperFlagsChanged(which: Int) {
             super.onWallpaperFlagsChanged(which)
-            updateKeyguardState(forceRender = true)
+            if (which == WallpaperManager.FLAG_SYSTEM) {
+                val wasLocked = cachedIsLocked
+                cachedIsLocked = false
+                if (wasLocked && WallpaperState.separateScreens.value && isVisibleState) {
+                    scheduleRender()
+                }
+            } else if (which == WallpaperManager.FLAG_LOCK) {
+                val wasLocked = cachedIsLocked
+                cachedIsLocked = true
+                if (!wasLocked && WallpaperState.separateScreens.value && isVisibleState) {
+                    scheduleRender()
+                }
+            } else {
+                updateKeyguardState(forceRender = true)
+            }
         }
 
         private fun updateKeyguardState(forceRender: Boolean = true) {
             try {
+                val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
                 val isLocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                     val flags = try { wallpaperFlags } catch (_: Exception) { 0 }
                     if (flags == WallpaperManager.FLAG_LOCK) {
@@ -302,12 +324,10 @@ class AlbumArtWallpaperService : WallpaperService() {
                     } else if (flags == WallpaperManager.FLAG_SYSTEM) {
                         false
                     } else {
-                        val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-                        km?.isKeyguardLocked ?: false
+                        km?.inKeyguardRestrictedInputMode() ?: (km?.isKeyguardLocked ?: false)
                     }
                 } else {
-                    val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-                    km?.isKeyguardLocked ?: false
+                    km?.inKeyguardRestrictedInputMode() ?: (km?.isKeyguardLocked ?: false)
                 }
                 val changed = (cachedIsLocked != isLocked)
                 cachedIsLocked = isLocked

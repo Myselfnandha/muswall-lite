@@ -19,7 +19,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 data class ScreenConfig(
-    val effectType: Int = EFFECT_BLUR,
+    val effectType: Int = EFFECT_BLUR_STILL,
     val blurPercent: Int = 45,
     val dimPercent: Int = 20,
     val stillScalePercent: Int = 80,
@@ -31,12 +31,17 @@ data class ScreenConfig(
     val applyEffectsToRestore: Boolean = false,
     val restoreBlurPercent: Int = 45,
     val restoreDimPercent: Int = 20,
-    val wallpaperOffsetYPercent: Int = 0
+    val wallpaperOffsetYPercent: Int = -35,
+    val wallpaperOffsetXPercent: Int = 0,
+    val aspectFitMode: Int = ASPECT_FIT_WIDTH
 ) {
     companion object {
         const val EFFECT_BLUR = 0
         const val EFFECT_STILL = 1
         const val EFFECT_BLUR_STILL = 2
+
+        const val ASPECT_FILL = 0
+        const val ASPECT_FIT_WIDTH = 1
 
         const val TRANSITION_FADE = 0
         const val TRANSITION_ZOOM = 1
@@ -346,12 +351,13 @@ object WallpaperState {
     }
 
     private fun readConfig(prefs: SharedPreferences, prefix: String): ScreenConfig {
+        val defaultOffset = if (prefix == "lock") 35 else -35
         return ScreenConfig(
-            effectType = prefs.getInt("${prefix}_effect_type", ScreenConfig.EFFECT_BLUR),
+            effectType = prefs.getInt("${prefix}_effect_type", ScreenConfig.EFFECT_BLUR_STILL),
             blurPercent = prefs.getInt("${prefix}_blur_percent", 45),
             dimPercent = prefs.getInt("${prefix}_dim_percent", 20),
             stillScalePercent = prefs.getInt("${prefix}_still_scale_percent", 80),
-            stillOffsetYPercent = prefs.getInt("${prefix}_still_offset_y_percent", -35),
+            stillOffsetYPercent = prefs.getInt("${prefix}_still_offset_y_percent", defaultOffset),
             stillCornerRadiusPercent = prefs.getInt("${prefix}_still_corner_radius_percent", 12),
             applyEffect = prefs.getInt("${prefix}_apply_effect", ScreenConfig.TRANSITION_FADE),
             restoreEffect = prefs.getInt("${prefix}_restore_effect", ScreenConfig.TRANSITION_FADE),
@@ -359,7 +365,9 @@ object WallpaperState {
             applyEffectsToRestore = prefs.getBoolean("${prefix}_apply_effects_to_restore", false),
             restoreBlurPercent = prefs.getInt("${prefix}_restore_blur_percent", 45),
             restoreDimPercent = prefs.getInt("${prefix}_restore_dim_percent", 20),
-            wallpaperOffsetYPercent = prefs.getInt("${prefix}_wallpaper_offset_y_percent", 0)
+            wallpaperOffsetYPercent = prefs.getInt("${prefix}_wallpaper_offset_y_percent", defaultOffset),
+            wallpaperOffsetXPercent = prefs.getInt("${prefix}_wallpaper_offset_x_percent", 0),
+            aspectFitMode = prefs.getInt("${prefix}_aspect_fit_mode", ScreenConfig.ASPECT_FIT_WIDTH)
         )
     }
 
@@ -378,6 +386,8 @@ object WallpaperState {
             putInt("${prefix}_restore_blur_percent", config.restoreBlurPercent)
             putInt("${prefix}_restore_dim_percent", config.restoreDimPercent)
             putInt("${prefix}_wallpaper_offset_y_percent", config.wallpaperOffsetYPercent)
+            putInt("${prefix}_wallpaper_offset_x_percent", config.wallpaperOffsetXPercent)
+            putInt("${prefix}_aspect_fit_mode", config.aspectFitMode)
             apply()
         }
     }

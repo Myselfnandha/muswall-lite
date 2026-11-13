@@ -449,20 +449,47 @@ fun MainScreen() {
                                 Column(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .padding(bottom = 12.dp),
-                                    verticalArrangement = Arrangement.Bottom,
+                                        .padding(6.dp),
+                                    verticalArrangement = Arrangement.SpaceBetween,
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(top = 10.dp)
+                                            .width(55.dp)
+                                            .height(18.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0x35FFFFFF)),
+                                        contentAlignment = Alignment.Center
                                     ) {
-                                        repeat(4) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(16.dp)
-                                                    .clip(CircleShape)
-                                                    .background(Color(0x77FFFFFF))
-                                            )
+                                        Text("12:45", fontSize = 8.sp, color = Color(0x99FFFFFF))
+                                    }
+
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 6.dp)
+                                                .height(10.dp)
+                                                .clip(RoundedCornerShape(5.dp))
+                                                .background(Color(0x30FFFFFF))
+                                        )
+
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            repeat(4) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(16.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(0x77FFFFFF))
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -594,6 +621,32 @@ fun MainScreen() {
                             label = { Text("Blur + Still", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
                             modifier = Modifier.weight(1.2f)
                         )
+                    }
+
+                    if (currentConfig.effectType == ScreenConfig.EFFECT_BLUR) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Aspect Ratio Presentation",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = currentConfig.aspectFitMode == ScreenConfig.ASPECT_FIT_WIDTH,
+                                onClick = { updateCurrentConfig(currentConfig.copy(aspectFitMode = ScreenConfig.ASPECT_FIT_WIDTH)) },
+                                label = { Text("🖼️ Fit Width (Ambient)", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = currentConfig.aspectFitMode == ScreenConfig.ASPECT_FILL,
+                                onClick = { updateCurrentConfig(currentConfig.copy(aspectFitMode = ScreenConfig.ASPECT_FILL)) },
+                                label = { Text("📐 Full Bleed (Fill)", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }
@@ -791,12 +844,71 @@ fun MainScreen() {
                         fontSize = 15.sp
                     )
                     Text(
-                        text = "Adjust vertical framing of background wallpaper on ${if (localSeparateScreens && activeTab == 1) "Lock Screen" else "Home Screen"}",
+                        text = "Adjust framing and alignment of cover wallpaper on ${if (localSeparateScreens && activeTab == 1) "Lock Screen" else "Home Screen"}",
                         fontSize = 12.sp,
                         color = Color.LightGray
                     )
 
+                    if (currentConfig.effectType == ScreenConfig.EFFECT_BLUR && currentConfig.aspectFitMode == ScreenConfig.ASPECT_FILL) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Horizontal Framing", fontSize = 13.sp)
+                                val xAlignLabel = when {
+                                    currentConfig.wallpaperOffsetXPercent == 0 -> "Center (0%)"
+                                    currentConfig.wallpaperOffsetXPercent <= -70 -> "Left Focus (${currentConfig.wallpaperOffsetXPercent}%)"
+                                    currentConfig.wallpaperOffsetXPercent >= 70 -> "Right Focus (+${currentConfig.wallpaperOffsetXPercent}%)"
+                                    currentConfig.wallpaperOffsetXPercent < 0 -> "Left ${-currentConfig.wallpaperOffsetXPercent}%"
+                                    else -> "Right +${currentConfig.wallpaperOffsetXPercent}%"
+                                }
+                                Text(xAlignLabel, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                            }
+                            Slider(
+                                value = currentConfig.wallpaperOffsetXPercent.toFloat(),
+                                onValueChange = {
+                                    updateCurrentConfig(currentConfig.copy(wallpaperOffsetXPercent = it.toInt()))
+                                },
+                                valueRange = -100f..100f
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    "Left Focus" to -80,
+                                    "Center" to 0,
+                                    "Right Focus" to 80
+                                ).forEach { (label, value) ->
+                                    val isSelected = currentConfig.wallpaperOffsetXPercent == value
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                updateCurrentConfig(currentConfig.copy(wallpaperOffsetXPercent = value))
+                                            }
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            textAlign = TextAlign.Center,
+                                            modifier = Modifier.padding(vertical = 6.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Column {
+                        val safeZoneOffset = if (localSeparateScreens && activeTab == 1) 35 else -35
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -804,6 +916,7 @@ fun MainScreen() {
                         ) {
                             Text("Vertical Framing", fontSize = 13.sp)
                             val alignLabel = when {
+                                currentConfig.wallpaperOffsetYPercent == safeZoneOffset -> "Safe Zone (${if (safeZoneOffset < 0) "" else "+"}${safeZoneOffset}%)"
                                 currentConfig.wallpaperOffsetYPercent == 0 -> "Center (0%)"
                                 currentConfig.wallpaperOffsetYPercent <= -70 -> "Top Focus (${currentConfig.wallpaperOffsetYPercent}%)"
                                 currentConfig.wallpaperOffsetYPercent >= 70 -> "Bottom Focus (+${currentConfig.wallpaperOffsetYPercent}%)"
@@ -824,6 +937,7 @@ fun MainScreen() {
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             listOf(
+                                "✨ Safe Zone" to safeZoneOffset,
                                 "Top Focus" to -80,
                                 "Center" to 0,
                                 "Bottom Focus" to 80
