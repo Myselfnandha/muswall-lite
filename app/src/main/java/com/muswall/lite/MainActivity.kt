@@ -190,7 +190,12 @@ fun MainScreen() {
     }
 
     val sampleArt = remember { generateSampleArtwork() }
+    val sampleHomeRestore = remember { generateSampleRestoreArtwork(false) }
+    val sampleLockRestore = remember { generateSampleRestoreArtwork(true) }
+
     val displayArt = currentArt ?: sampleArt
+    val effectiveHomeRestore = homeRestoreArt ?: sampleHomeRestore
+    val effectiveLockRestore = if (localSeparateScreens) (lockRestoreArt ?: sampleLockRestore) else effectiveHomeRestore
 
     val currentConfig = if (localSeparateScreens && activeTab == 1) localLockConfig else localHomeConfig
 
@@ -205,13 +210,24 @@ fun MainScreen() {
         }
     }
 
+    fun updateHomeConfig(newConfig: ScreenConfig) {
+        localHomeConfig = newConfig
+        if (!localSeparateScreens) {
+            localLockConfig = newConfig
+        }
+    }
+
+    fun updateLockConfig(newConfig: ScreenConfig) {
+        localLockConfig = newConfig
+    }
+
     val homeRestoreBlur = remember(
-        homeRestoreArt,
+        effectiveHomeRestore,
         localHomeConfig.restoreBlurPercent,
         localHomeConfig.applyEffectsToRestore
     ) {
-        if (localHomeConfig.applyEffectsToRestore && homeRestoreArt != null && localHomeConfig.restoreBlurPercent > 0) {
-            WallpaperRenderer.getNormalBlur(homeRestoreArt!!, localHomeConfig.restoreBlurPercent)
+        if (localHomeConfig.applyEffectsToRestore && localHomeConfig.restoreBlurPercent > 0) {
+            WallpaperRenderer.getNormalBlur(effectiveHomeRestore, localHomeConfig.restoreBlurPercent)
         } else null
     }
 
@@ -227,7 +243,7 @@ fun MainScreen() {
 
     val homePreviewBitmap = remember(
         displayArt,
-        homeRestoreArt,
+        effectiveHomeRestore,
         previewShowingRestore,
         localHomeConfig,
         previewAnimProgress,
@@ -235,10 +251,10 @@ fun MainScreen() {
         homeRestoreBlur
     ) {
         val mode = if (previewShowingRestore) localHomeConfig.restoreEffect else localHomeConfig.applyEffect
-        val previous = if (previewShowingRestore) displayArt else homeRestoreArt
+        val previous = if (previewShowingRestore) displayArt else effectiveHomeRestore
         renderScreenPreview(
             art = displayArt,
-            restore = homeRestoreArt,
+            restore = effectiveHomeRestore,
             isRestore = previewShowingRestore,
             config = localHomeConfig,
             progress = previewAnimProgress,
@@ -249,7 +265,6 @@ fun MainScreen() {
         )
     }
 
-    val effectiveLockRestore = if (localSeparateScreens) (lockRestoreArt ?: homeRestoreArt) else homeRestoreArt
     val effectiveLockConfig = if (localSeparateScreens) localLockConfig else localHomeConfig
 
     val lockRestoreBlur = remember(
@@ -257,8 +272,8 @@ fun MainScreen() {
         effectiveLockConfig.restoreBlurPercent,
         effectiveLockConfig.applyEffectsToRestore
     ) {
-        if (effectiveLockConfig.applyEffectsToRestore && effectiveLockRestore != null && effectiveLockConfig.restoreBlurPercent > 0) {
-            WallpaperRenderer.getNormalBlur(effectiveLockRestore!!, effectiveLockConfig.restoreBlurPercent)
+        if (effectiveLockConfig.applyEffectsToRestore && effectiveLockConfig.restoreBlurPercent > 0) {
+            WallpaperRenderer.getNormalBlur(effectiveLockRestore, effectiveLockConfig.restoreBlurPercent)
         } else null
     }
 
@@ -378,21 +393,23 @@ fun MainScreen() {
                                 fontSize = 16.sp
                             )
                             Text(
-                                text = if (previewShowingRestore) "Restored Default Wallpaper" else (trackTitle ?: "Music Album Artwork"),
+                                text = if (previewShowingRestore) "Restored Default Wallpaper (Home & Lock)" else (trackTitle ?: "Music Album Artwork"),
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 maxLines = 1
                             )
                         }
 
-                        FilledTonalButton(
-                            onClick = { playPreviewTransition(!previewShowingRestore) },
-                            shape = RoundedCornerShape(12.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = if (previewShowingRestore) "🖼️ Default" else "🎵 Music",
-                                fontSize = 11.sp
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FilterChip(
+                                selected = !previewShowingRestore,
+                                onClick = { playPreviewTransition(false) },
+                                label = { Text("🎵 Music", fontSize = 11.sp) }
+                            )
+                            FilterChip(
+                                selected = previewShowingRestore,
+                                onClick = { playPreviewTransition(true) },
+                                label = { Text("🖼️ Recover", fontSize = 11.sp) }
                             )
                         }
                     }
@@ -753,6 +770,11 @@ fun MainScreen() {
                 }
             }
 
+            var recoverTab by remember { mutableIntStateOf(0) }
+            if (!localSeparateScreens && recoverTab == 1) {
+                recoverTab = 0
+            }
+
             Card(
                 shape = RoundedCornerShape(18.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -762,90 +784,127 @@ fun MainScreen() {
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Recover Wallpaper (Default Wallpaper)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                    Text(
-                        text = "Selecting an image sets the restored wallpaper when playback stops. Pick separate wallpapers for Home and Lock screens.",
-                        fontSize = 12.sp,
-                        color = Color.LightGray
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Recover Wallpaper (Default)", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text(
+                                text = if (localSeparateScreens) "Separate wallpaper & effects for each screen" else "Wallpaper restored when playback stops",
+                                fontSize = 12.sp,
+                                color = Color.LightGray
+                            )
+                        }
+                        FilledTonalButton(
+                            onClick = { playPreviewTransition(!previewShowingRestore) },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (previewShowingRestore) "🎵 Live Music" else "🖼️ Live Recover",
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+
+                    if (localSeparateScreens) {
+                        TabRow(
+                            selectedTabIndex = recoverTab,
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                        ) {
+                            Tab(
+                                selected = recoverTab == 0,
+                                onClick = {
+                                    recoverTab = 0
+                                    activeTab = 0
+                                },
+                                text = { Text("🏠 Home Recover", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
+                            )
+                            Tab(
+                                selected = recoverTab == 1,
+                                onClick = {
+                                    recoverTab = 1
+                                    activeTab = 1
+                                },
+                                text = { Text("🔒 Lock Recover", fontWeight = FontWeight.SemiBold, fontSize = 12.sp) }
+                            )
+                        }
+                    }
+
+                    val activeRecoverConfig = if (localSeparateScreens && recoverTab == 1) localLockConfig else localHomeConfig
+                    val onRecoverConfigChange: (ScreenConfig) -> Unit = { updated ->
+                        if (localSeparateScreens && recoverTab == 1) {
+                            updateLockConfig(updated)
+                        } else {
+                            updateHomeConfig(updated)
+                        }
+                    }
+                    val screenTitle = if (localSeparateScreens) (if (recoverTab == 1) "Lock Screen" else "Home Screen") else "All Screens"
+                    val currentRestoreArt = if (localSeparateScreens && recoverTab == 1) (lockRestoreArt ?: effectiveLockRestore) else (homeRestoreArt ?: effectiveHomeRestore)
+                    val isCustomArt = if (localSeparateScreens && recoverTab == 1) (lockRestoreArt != null) else (homeRestoreArt != null)
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(
+                        Box(
                             modifier = Modifier
-                                .weight(1f)
+                                .size(width = 75.dp, height = 120.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(1.5.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp))
+                                .background(Color.DarkGray)
                                 .clickable {
-                                    homePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    if (localSeparateScreens && recoverTab == 1) {
+                                        lockPhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    } else {
+                                        homePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                    }
                                 },
-                            horizontalAlignment = Alignment.CenterHorizontally
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(width = 75.dp, height = 120.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .border(
-                                        width = if (activeTab == 0) 2.dp else 1.dp,
-                                        color = if (activeTab == 0) MaterialTheme.colorScheme.primary else Color(0xFF444455),
-                                        shape = RoundedCornerShape(10.dp)
-                                    )
-                                    .background(Color.DarkGray),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (homeRestoreArt != null) {
-                                    Image(
-                                        bitmap = homeRestoreArt!!.asImageBitmap(),
-                                        contentDescription = "Home Default Wallpaper",
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    Text("Pick Home", fontSize = 10.sp, color = Color.Gray)
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("Home Default", fontSize = 11.sp, color = Color.White)
+                            Image(
+                                bitmap = currentRestoreArt.asImageBitmap(),
+                                contentDescription = "$screenTitle Wallpaper",
+                                modifier = Modifier.fillMaxSize()
+                            )
                         }
 
-                        if (localSeparateScreens) {
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "$screenTitle Wallpaper",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                text = if (isCustomArt) "Custom image selected" else "Sample default wallpaper",
+                                fontSize = 11.sp,
+                                color = if (isCustomArt) MaterialTheme.colorScheme.primary else Color.Gray
+                            )
+                            Button(
+                                onClick = {
+                                    if (localSeparateScreens && recoverTab == 1) {
                                         lockPhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                    },
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(width = 75.dp, height = 120.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .border(
-                                            width = if (activeTab == 1) 2.dp else 1.dp,
-                                            color = if (activeTab == 1) MaterialTheme.colorScheme.primary else Color(0xFF444455),
-                                            shape = RoundedCornerShape(10.dp)
-                                        )
-                                        .background(Color.DarkGray),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    val lockArt = lockRestoreArt ?: homeRestoreArt
-                                    if (lockArt != null) {
-                                        Image(
-                                            bitmap = lockArt.asImageBitmap(),
-                                            contentDescription = "Lock Default Wallpaper",
-                                            modifier = Modifier.fillMaxSize()
-                                        )
                                     } else {
-                                        Text("Pick Lock", fontSize = 10.sp, color = Color.Gray)
+                                        homePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                     }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("Lock Default", fontSize = 11.sp, color = Color.White)
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Choose Image", fontSize = 11.sp)
                             }
                         }
                     }
 
-                    Text("Delay before restoring default wallpaper:", fontSize = 13.sp)
+                    Text("Delay before restoring $screenTitle wallpaper:", fontSize = 13.sp)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -859,8 +918,8 @@ fun MainScreen() {
                             "Never" to -1
                         ).forEach { (label, sec) ->
                             FilterChip(
-                                selected = currentConfig.restoreDelaySeconds == sec,
-                                onClick = { updateCurrentConfig(currentConfig.copy(restoreDelaySeconds = sec)) },
+                                selected = activeRecoverConfig.restoreDelaySeconds == sec,
+                                onClick = { onRecoverConfigChange(activeRecoverConfig.copy(restoreDelaySeconds = sec)) },
                                 label = { Text(label, fontSize = 10.sp) },
                                 modifier = Modifier.weight(1f)
                             )
@@ -877,35 +936,37 @@ fun MainScreen() {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Apply effects to Recover Wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text("Apply effects to $screenTitle Recover Wallpaper", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             Text(
-                                text = "Apply customizable blur and dimming to the default recover wallpaper",
+                                text = "Apply blur and dimming to $screenTitle restored wallpaper",
                                 fontSize = 11.sp,
                                 color = Color.LightGray
                             )
                         }
                         Switch(
-                            checked = currentConfig.applyEffectsToRestore,
+                            checked = activeRecoverConfig.applyEffectsToRestore,
                             onCheckedChange = {
-                                updateCurrentConfig(currentConfig.copy(applyEffectsToRestore = it))
+                                onRecoverConfigChange(activeRecoverConfig.copy(applyEffectsToRestore = it))
+                                if (it) previewShowingRestore = true
                             },
                             modifier = Modifier.scale(0.85f)
                         )
                     }
 
-                    if (currentConfig.applyEffectsToRestore) {
+                    if (activeRecoverConfig.applyEffectsToRestore) {
                         Column {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Recover Blur Intensity", fontSize = 13.sp)
-                                Text("${currentConfig.restoreBlurPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                                Text("$screenTitle Recover Blur Intensity", fontSize = 13.sp)
+                                Text("${activeRecoverConfig.restoreBlurPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                             }
                             Slider(
-                                value = currentConfig.restoreBlurPercent.toFloat(),
+                                value = activeRecoverConfig.restoreBlurPercent.toFloat(),
                                 onValueChange = {
-                                    updateCurrentConfig(currentConfig.copy(restoreBlurPercent = it.toInt()))
+                                    onRecoverConfigChange(activeRecoverConfig.copy(restoreBlurPercent = it.toInt()))
+                                    if (!previewShowingRestore) previewShowingRestore = true
                                 },
                                 valueRange = 0f..100f
                             )
@@ -916,13 +977,14 @@ fun MainScreen() {
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("Recover Dimming", fontSize = 13.sp)
-                                Text("${currentConfig.restoreDimPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+                                Text("$screenTitle Recover Dimming", fontSize = 13.sp)
+                                Text("${activeRecoverConfig.restoreDimPercent}%", color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
                             }
                             Slider(
-                                value = currentConfig.restoreDimPercent.toFloat(),
+                                value = activeRecoverConfig.restoreDimPercent.toFloat(),
                                 onValueChange = {
-                                    updateCurrentConfig(currentConfig.copy(restoreDimPercent = it.toInt()))
+                                    onRecoverConfigChange(activeRecoverConfig.copy(restoreDimPercent = it.toInt()))
+                                    if (!previewShowingRestore) previewShowingRestore = true
                                 },
                                 valueRange = 0f..80f
                             )
@@ -935,14 +997,10 @@ fun MainScreen() {
                     ) {
                         Button(
                             onClick = {
-                                if (localSeparateScreens && activeTab == 1) {
-                                    lockPhotoPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
+                                if (localSeparateScreens && recoverTab == 1) {
+                                    lockPhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                 } else {
-                                    homePhotoPicker.launch(
-                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                    )
+                                    homePhotoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                                 }
                             },
                             modifier = Modifier.weight(1f),
@@ -1257,6 +1315,55 @@ fun generateSampleArtwork(): Bitmap {
         isFakeBoldText = true
     }
     canvas.drawText("MUSIC ART", size / 2f, size * 0.88f, textPaint)
+
+    return bmp
+}
+
+fun generateSampleRestoreArtwork(isLock: Boolean): Bitmap {
+    val w = 540
+    val h = 1200
+    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bmp)
+
+    val colors = if (isLock) {
+        intArrayOf(
+            AndroidColor.parseColor("#0F2027"),
+            AndroidColor.parseColor("#203A43"),
+            AndroidColor.parseColor("#2C5364")
+        )
+    } else {
+        intArrayOf(
+            AndroidColor.parseColor("#2E1065"),
+            AndroidColor.parseColor("#701A75"),
+            AndroidColor.parseColor("#9D174D"),
+            AndroidColor.parseColor("#EA580C")
+        )
+    }
+
+    val gradient = LinearGradient(
+        0f, 0f, 0f, h.toFloat(),
+        colors,
+        null,
+        Shader.TileMode.CLAMP
+    )
+    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = gradient
+    }
+    canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+
+    val shapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = AndroidColor.argb(40, 255, 255, 255)
+        style = Paint.Style.FILL
+    }
+    canvas.drawCircle(w * 0.5f, h * 0.4f, w * 0.35f, shapePaint)
+
+    val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = AndroidColor.argb(200, 255, 255, 255)
+        textSize = 34f
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+    canvas.drawText(if (isLock) "LOCK DEFAULT" else "HOME DEFAULT", w * 0.5f, h * 0.41f, labelPaint)
 
     return bmp
 }

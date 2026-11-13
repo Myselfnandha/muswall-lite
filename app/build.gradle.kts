@@ -12,8 +12,8 @@ android {
         applicationId = "com.muswall.lite"
         minSdk = 31
         targetSdk = 35
-        versionCode = 15
-        versionName = "1.0.15"
+        versionCode = 16
+        versionName = "1.0.16"
     }
 
     buildTypes {
