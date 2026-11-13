@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Icon
 import android.media.MediaMetadata
@@ -12,6 +13,8 @@ import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import kotlinx.coroutines.CoroutineScope
@@ -19,11 +22,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.math.max
 
 class MusicNotificationListener : NotificationListenerService() {
 
-    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    private val listenerJob = Job()
+    private val scope = CoroutineScope(Dispatchers.Default + listenerJob)
     private var extractJob: Job? = null
 
     private var sessionManager: MediaSessionManager? = null
@@ -68,6 +74,12 @@ class MusicNotificationListener : NotificationListenerService() {
         activeController?.unregisterCallback(callback)
         sessionManager?.removeOnActiveSessionsChangedListener(sessionsListener)
         super.onListenerDisconnected()
+    }
+
+    override fun onDestroy() {
+        extractJob?.cancel()
+        listenerJob.cancel()
+        super.onDestroy()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -163,8 +175,19 @@ class MusicNotificationListener : NotificationListenerService() {
         if (bitmap == null && artUriStr != null) {
             try {
                 val uri = Uri.parse(artUriStr)
-                contentResolver.openInputStream(uri)?.use { stream ->
-                    bitmap = BitmapFactory.decodeStream(stream)
+                if (uri.scheme == "http" || uri.scheme == "https") {
+                    val connection = URL(artUriStr).openConnection() as HttpURLConnection
+                    connection.connectTimeout = 3000
+                    connection.readTimeout = 3000
+                    connection.doInput = true
+                    connection.connect()
+                    connection.inputStream.use { stream ->
+                        bitmap = BitmapFactory.decodeStream(stream)
+                    }
+                } else {
+                    contentResolver.openInputStream(uri)?.use { stream ->
+                        bitmap = BitmapFactory.decodeStream(stream)
+                    }
                 }
             } catch (_: Exception) {
             }
@@ -210,24 +233,49 @@ class MusicNotificationListener : NotificationListenerService() {
         try {
             val activeNotifications = getActiveNotifications() ?: return null
             for (sbn in activeNotifications) {
-                if (sbn.packageName == targetPkg || sbn.notification.isMediaNotification()) {
+                if (sbn.packageName == targetPkg) {
                     val extras = sbn.notification.extras ?: continue
-
-                    val picture = extras.getParcelable<Bitmap>(Notification.EXTRA_PICTURE)
-                    if (picture != null) return picture
-
-                    val largeIconObj = extras.get(Notification.EXTRA_LARGE_ICON)
-                    if (largeIconObj is Bitmap) {
-                        return largeIconObj
-                    } else if (largeIconObj is Icon) {
-                        val drawable = largeIconObj.loadDrawable(this)
-                        if (drawable is BitmapDrawable) {
-                            return drawable.bitmap
-                        }
-                    }
+                    val art = extractArtFromExtras(extras)
+                    if (art != null) return art
+                }
+            }
+            for (sbn in activeNotifications) {
+                if (sbn.notification.isMediaNotification()) {
+                    val extras = sbn.notification.extras ?: continue
+                    val art = extractArtFromExtras(extras)
+                    if (art != null) return art
                 }
             }
         } catch (_: Exception) {
+        }
+        return null
+    }
+
+    @Suppress("DEPRECATION")
+    private fun extractArtFromExtras(extras: Bundle): Bitmap? {
+        val picture = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            extras.getParcelable(Notification.EXTRA_PICTURE, Bitmap::class.java)
+        } else {
+            extras.getParcelable(Notification.EXTRA_PICTURE)
+        }
+        if (picture != null) return picture
+
+        val largeIconObj = extras.get(Notification.EXTRA_LARGE_ICON)
+        if (largeIconObj is Bitmap) {
+            return largeIconObj
+        } else if (largeIconObj is Icon) {
+            val drawable = largeIconObj.loadDrawable(this)
+            if (drawable is BitmapDrawable) {
+                return drawable.bitmap
+            } else if (drawable != null) {
+                val w = drawable.intrinsicWidth.coerceAtLeast(1)
+                val h = drawable.intrinsicHeight.coerceAtLeast(1)
+                val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bmp)
+                drawable.setBounds(0, 0, w, h)
+                drawable.draw(canvas)
+                return bmp
+            }
         }
         return null
     }

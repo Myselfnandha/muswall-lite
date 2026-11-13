@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
@@ -25,12 +24,15 @@ class AlbumArtWallpaperService : WallpaperService() {
     }
 
     inner class AlbumEngine : Engine() {
-        private val scope = CoroutineScope(Dispatchers.Default + Job())
+        private val engineJob = Job()
+        private val scope = CoroutineScope(Dispatchers.Default + engineJob)
         private val mainHandler = Handler(Looper.getMainLooper())
         private var isVisibleState = false
 
         private var surfaceWidth = 1080
         private var surfaceHeight = 2400
+        private var displayWidth = 1080
+        private var currentXOffset = 0.5f
 
         private var isAnimating = false
         private var animStartTimeNanos = 0L
@@ -95,6 +97,7 @@ class AlbumArtWallpaperService : WallpaperService() {
             super.onCreate(surfaceHolder)
             val context: Context = this@AlbumArtWallpaperService
             WallpaperState.init(context)
+            displayWidth = resources.displayMetrics.widthPixels
 
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_USER_PRESENT)
@@ -227,6 +230,7 @@ class AlbumArtWallpaperService : WallpaperService() {
             } catch (_: Exception) {
             }
             stopAnimation()
+            engineJob.cancel()
             super.onDestroy()
         }
 
@@ -245,7 +249,24 @@ class AlbumArtWallpaperService : WallpaperService() {
             super.onSurfaceChanged(holder, format, width, height)
             surfaceWidth = width
             surfaceHeight = height
+            displayWidth = resources.displayMetrics.widthPixels
             scheduleRender()
+        }
+
+        override fun onOffsetsChanged(
+            xOffset: Float,
+            yOffset: Float,
+            xOffsetStep: Float,
+            yOffsetStep: Float,
+            xPixelOffset: Int,
+            yPixelOffset: Int
+        ) {
+            super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset)
+            val changed = (currentXOffset != xOffset)
+            currentXOffset = xOffset
+            if (changed && isVisibleState && surfaceWidth > displayWidth) {
+                scheduleRender()
+            }
         }
 
         override fun onSurfaceRedrawNeeded(holder: SurfaceHolder) {
@@ -324,13 +345,9 @@ class AlbumArtWallpaperService : WallpaperService() {
             var canvas: Canvas? = null
 
             try {
-                canvas = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    try {
-                        holder.lockHardwareCanvas()
-                    } catch (_: Exception) {
-                        holder.lockCanvas()
-                    }
-                } else {
+                canvas = try {
+                    holder.lockHardwareCanvas()
+                } catch (_: Exception) {
                     holder.lockCanvas()
                 }
                 if (canvas != null) {
@@ -364,7 +381,9 @@ class AlbumArtWallpaperService : WallpaperService() {
                 transitionMode = transitionMode,
                 previousBitmap = previousBitmap,
                 preparedBlur = preparedBlur,
-                preparedRestoreBlur = preparedRestoreBlur
+                preparedRestoreBlur = preparedRestoreBlur,
+                xOffset = currentXOffset,
+                displayWidth = displayWidth
             )
         }
     }

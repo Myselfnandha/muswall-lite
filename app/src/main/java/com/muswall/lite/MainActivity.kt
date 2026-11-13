@@ -896,16 +896,39 @@ fun MainScreen() {
                 Text("Set as Live Wallpaper", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
             }
 
-            OutlinedButton(
-                onClick = {
-                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp),
-                shape = RoundedCornerShape(16.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Notification Listener Access", fontSize = 14.sp)
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text("Notification Access", fontSize = 12.sp, textAlign = TextAlign.Center)
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                data = Uri.fromParts("package", context.packageName, null)
+                            }
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text("App Info (Restricted / Battery)", fontSize = 11.sp, textAlign = TextAlign.Center)
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -947,16 +970,10 @@ fun renderScreenPreview(
 
 fun loadSoftwareBitmapFromUri(context: Context, uri: Uri): Bitmap? {
     return try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val source = ImageDecoder.createSource(context.contentResolver, uri)
-            ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                decoder.isMutableRequired = true
-            }
-        } else {
-            context.contentResolver.openInputStream(uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream)
-            }
+        val source = ImageDecoder.createSource(context.contentResolver, uri)
+        ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+            decoder.isMutableRequired = true
         }
     } catch (_: Exception) {
         null

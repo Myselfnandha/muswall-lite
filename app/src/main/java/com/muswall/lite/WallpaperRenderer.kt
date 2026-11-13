@@ -21,6 +21,7 @@ object WallpaperRenderer {
     private var scratchPixels: IntArray? = null
     private var scratchTemp: IntArray? = null
 
+    @Synchronized
     fun render(
         canvas: Canvas,
         width: Int,
@@ -33,7 +34,9 @@ object WallpaperRenderer {
         transitionMode: Int = 0,
         previousBitmap: Bitmap? = null,
         preparedBlur: Bitmap? = null,
-        preparedRestoreBlur: Bitmap? = null
+        preparedRestoreBlur: Bitmap? = null,
+        xOffset: Float = 0.5f,
+        displayWidth: Int = 0
     ) {
         if (width <= 0 || height <= 0) return
 
@@ -45,9 +48,14 @@ object WallpaperRenderer {
         }
 
         val progress = transitionProgress.coerceIn(0f, 1f)
+        val screenCenterX = if (displayWidth in 1 until width) {
+            ((width - displayWidth) * xOffset.coerceIn(0f, 1f)) + (displayWidth / 2f)
+        } else {
+            width / 2f
+        }
 
         if (progress < 1f && previousBitmap != null && !previousBitmap.isRecycled) {
-            drawFullBleed(canvas, previousBitmap, width, height, 1f)
+            drawFullBleed(canvas, previousBitmap, width, height, 1f, screenCenterX)
         } else if (targetArt == null) {
             drawFallbackBackground(canvas, width, height)
             return
@@ -59,7 +67,7 @@ object WallpaperRenderer {
             when (transitionMode) {
                 ScreenConfig.TRANSITION_ZOOM -> {
                     val scale = 1.15f - (0.15f * progress)
-                    canvas.scale(scale, scale, width / 2f, height / 2f)
+                    canvas.scale(scale, scale, screenCenterX, height / 2f)
                 }
                 ScreenConfig.TRANSITION_SLIDE_UP -> {
                     val offsetY = (1f - progress) * (height * 0.16f)
@@ -71,7 +79,7 @@ object WallpaperRenderer {
                 }
                 ScreenConfig.TRANSITION_RADIAL -> {
                     val scale = 0.82f + (0.18f * progress)
-                    canvas.scale(scale, scale, width / 2f, height / 2f)
+                    canvas.scale(scale, scale, screenCenterX, height / 2f)
                 }
                 else -> {
                 }
@@ -79,18 +87,18 @@ object WallpaperRenderer {
 
             if (isRestoreActive) {
                 if (config.applyEffectsToRestore) {
-                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedRestoreBlur)
+                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedRestoreBlur, screenCenterX)
                 } else {
-                    drawFullBleed(canvas, targetArt, width, height, progress)
+                    drawFullBleed(canvas, targetArt, width, height, progress, screenCenterX)
                 }
             } else {
                 if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE) {
                     if (progress < 1f) {
-                        drawFullBleed(canvas, targetArt, width, height, 1f - progress)
+                        drawFullBleed(canvas, targetArt, width, height, 1f - progress, screenCenterX)
                     }
-                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedBlur)
+                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedBlur, screenCenterX)
                 } else {
-                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedBlur)
+                    renderBlurredArt(canvas, targetArt, width, height, config.blurPercent, progress, preparedBlur, screenCenterX)
                 }
             }
 
@@ -107,12 +115,13 @@ object WallpaperRenderer {
         height: Int,
         blurPercent: Int,
         progress: Float,
-        preparedFallback: Bitmap?
+        preparedFallback: Bitmap?,
+        centerX: Float
     ) {
         if (preparedFallback != null && !preparedFallback.isRecycled) {
-            drawFullBleed(canvas, preparedFallback, width, height, progress)
+            drawFullBleed(canvas, preparedFallback, width, height, progress, centerX)
         } else {
-            drawBlur(canvas, art, width, height, blurPercent, progress)
+            drawBlur(canvas, art, width, height, blurPercent, progress, centerX)
         }
     }
 
@@ -126,7 +135,8 @@ object WallpaperRenderer {
         src: Bitmap,
         targetWidth: Int,
         targetHeight: Int,
-        progress: Float
+        progress: Float,
+        centerX: Float = targetWidth / 2f
     ) {
         if (src.isRecycled) return
         val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
@@ -137,7 +147,7 @@ object WallpaperRenderer {
         val scaledW = scale * src.width
         val scaledH = scale * src.height
 
-        val left = (targetWidth - scaledW) / 2f
+        val left = centerX - (scaledW / 2f)
         val top = (targetHeight - scaledH) / 2f
 
         renderMatrix.reset()
@@ -153,14 +163,15 @@ object WallpaperRenderer {
         targetWidth: Int,
         targetHeight: Int,
         blurPercent: Int,
-        progress: Float
+        progress: Float,
+        centerX: Float
     ) {
         if (src.isRecycled) return
         val effectiveBlur = if (blurPercent > 0) blurPercent else 50
         val blurred = getNormalBlur(src, effectiveBlur)
         if (blurred.isRecycled) return
 
-        drawFullBleed(canvas, blurred, targetWidth, targetHeight, progress)
+        drawFullBleed(canvas, blurred, targetWidth, targetHeight, progress, centerX)
     }
 
     private fun applyDimming(canvas: Canvas, width: Int, height: Int, dimPercent: Int) {
@@ -170,6 +181,7 @@ object WallpaperRenderer {
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
     }
 
+    @Synchronized
     fun getNormalBlur(source: Bitmap, blurPercent: Int): Bitmap {
         if (blurPercent <= 0 || source.isRecycled) return source
         val key = System.identityHashCode(source)

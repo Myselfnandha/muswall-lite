@@ -1,11 +1,13 @@
 package com.muswall.lite
 
+import android.annotation.SuppressLint
 import android.app.WallpaperManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -211,7 +213,15 @@ object WallpaperState {
         notifySettingsChanged()
     }
 
+    private var systemCaptureAttempted = false
+
+    @SuppressLint("MissingPermission")
     fun captureSystemDefaultWallpaper(context: Context) {
+        if (systemCaptureAttempted) return
+        systemCaptureAttempted = true
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return
+        }
         scope.launch(Dispatchers.IO) {
             try {
                 val wm = WallpaperManager.getInstance(context)
