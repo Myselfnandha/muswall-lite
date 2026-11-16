@@ -50,6 +50,25 @@ class MusicNotificationListener : NotificationListenerService() {
         override fun onPlaybackStateChanged(state: PlaybackState?) {
             updateFromController(activeController, metadataChanged = false)
         }
+
+        override fun onSessionDestroyed() {
+            super.onSessionDestroyed()
+            handleSessionEnded()
+        }
+    }
+
+    private fun handleSessionEnded() {
+        extractJob?.cancel()
+        activeController?.unregisterCallback(callback)
+        activeController = null
+        lastPlayingState = false
+        lastExtractedArt = null
+        lastTrackTitle = null
+        lastArtist = null
+        lastArtUri = null
+        lastPackageName = null
+        WallpaperState.onMediaAppClosed(applicationContext)
+        checkSessions()
     }
 
     private val sessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
@@ -87,6 +106,14 @@ class MusicNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        val removedPkg = sbn?.packageName
+        if (removedPkg != null && removedPkg == activeController?.packageName) {
+            val state = activeController?.playbackState?.state
+            if (state != PlaybackState.STATE_PLAYING) {
+                handleSessionEnded()
+                return
+            }
+        }
         checkSessions()
     }
 
@@ -105,18 +132,40 @@ class MusicNotificationListener : NotificationListenerService() {
                 activeController?.unregisterCallback(callback)
                 activeController = null
             }
-            if (lastPlayingState) {
-                lastPlayingState = false
-                WallpaperState.updateMedia(applicationContext, lastExtractedArt, false, lastTrackTitle)
-            }
+            lastPlayingState = false
+            lastExtractedArt = null
+            lastTrackTitle = null
+            lastArtist = null
+            lastArtUri = null
+            lastPackageName = null
+            WallpaperState.onMediaAppClosed(applicationContext)
             return
         }
 
         val playingController = controllers.firstOrNull {
             it.playbackState?.state == PlaybackState.STATE_PLAYING
         } ?: controllers.firstOrNull {
-            it.metadata != null
-        } ?: controllers.first()
+            val state = it.playbackState?.state
+            state != PlaybackState.STATE_STOPPED && state != PlaybackState.STATE_NONE && it.metadata != null
+        } ?: controllers.firstOrNull {
+            val state = it.playbackState?.state
+            state != PlaybackState.STATE_STOPPED && state != PlaybackState.STATE_NONE
+        }
+
+        if (playingController == null) {
+            if (activeController != null) {
+                activeController?.unregisterCallback(callback)
+                activeController = null
+            }
+            lastPlayingState = false
+            lastExtractedArt = null
+            lastTrackTitle = null
+            lastArtist = null
+            lastArtUri = null
+            lastPackageName = null
+            WallpaperState.onMediaAppClosed(applicationContext)
+            return
+        }
 
         val changed = (activeController?.sessionToken != playingController.sessionToken)
         if (changed) {
@@ -154,10 +203,18 @@ class MusicNotificationListener : NotificationListenerService() {
             return
         }
 
+        if (isSameTrack && lastExtractedArt == null) {
+            lastPlayingState = isPlaying
+            WallpaperState.updateMedia(applicationContext, null, isPlaying, title)
+            return
+        }
+
         extractJob?.cancel()
         if (!isSamePlaying && isPlaying != lastPlayingState) {
             lastPlayingState = isPlaying
-            WallpaperState.updateMedia(applicationContext, lastExtractedArt, isPlaying, title)
+            if (isSameTrack) {
+                WallpaperState.updateMedia(applicationContext, lastExtractedArt, isPlaying, title)
+            }
         }
 
         extractJob = scope.launch {
@@ -211,6 +268,8 @@ class MusicNotificationListener : NotificationListenerService() {
             bitmap = lastExtractedArt
         } else if (optimized != null) {
             lastExtractedArt = optimized
+        } else {
+            lastExtractedArt = null
         }
 
         lastPackageName = pkg

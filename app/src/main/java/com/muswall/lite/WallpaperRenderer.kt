@@ -53,14 +53,9 @@ object WallpaperRenderer {
     ) {
         if (width <= 0 || height <= 0) return
 
-        val targetArt = if (isRestoreActive) restoreBitmap else artBitmap
+        val effectiveRestoreActive = isRestoreActive || artBitmap == null
+        val targetArt = if (effectiveRestoreActive) (restoreBitmap ?: WallpaperState.getDefaultRestoreArt(false)) else artBitmap
 
-        if (targetArt == null && previousBitmap == null) {
-            drawFallbackBackground(canvas, width, height)
-            return
-        }
-
-        val progress = transitionProgress.coerceIn(0f, 1f)
         val visibleW = if (displayWidth in 1 until width) displayWidth.toFloat() else width.toFloat()
         val screenLeft = if (displayWidth in 1 until width) {
             ((width - displayWidth) * xOffset.coerceIn(0f, 1f))
@@ -69,14 +64,13 @@ object WallpaperRenderer {
         }
         val screenCenterX = screenLeft + (visibleW / 2f)
 
+        val progress = transitionProgress.coerceIn(0f, 1f)
+
         if (progress < 1f && previousBitmap != null && !previousBitmap.isRecycled) {
             drawFullBleed(canvas, previousBitmap, width, height, visibleW, 1f, screenCenterX, config.wallpaperOffsetYPercent)
-        } else if (targetArt == null) {
-            drawFallbackBackground(canvas, width, height)
-            return
         }
 
-        if (targetArt != null && !targetArt.isRecycled) {
+        if (!targetArt.isRecycled) {
             canvas.save()
 
             when (transitionMode) {
@@ -102,7 +96,7 @@ object WallpaperRenderer {
 
             val effectiveOffsetX = getEffectiveOffsetX(config, targetArt)
 
-            if (isRestoreActive) {
+            if (effectiveRestoreActive) {
                 if (config.applyEffectsToRestore) {
                     if (config.restoreBlurPercent > 0) {
                         renderBlurredArt(canvas, targetArt, width, height, visibleW, config.restoreBlurPercent, progress, preparedRestoreBlur, screenCenterX, config.wallpaperOffsetYPercent, effectiveOffsetX)

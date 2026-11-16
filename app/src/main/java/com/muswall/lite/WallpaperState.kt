@@ -94,6 +94,9 @@ object WallpaperState {
     val isRestoreActive = _isHomeRestoreActive.asStateFlow()
 
     fun isRestoreActive(isLockScreen: Boolean): Boolean {
+        if (_currentArt.value == null) {
+            return true
+        }
         return if (_separateScreens.value && isLockScreen) {
             _isLockRestoreActive.value
         } else {
@@ -145,13 +148,21 @@ object WallpaperState {
         _isPlaying.value = playing
         _trackTitle.value = title
 
-        if (playing) {
+        if (playing && art != null) {
             homeRestoreJob?.cancel()
             homeRestoreJob = null
             lockRestoreJob?.cancel()
             lockRestoreJob = null
             _isHomeRestoreActive.value = false
             _isLockRestoreActive.value = false
+        } else if (art == null) {
+            // If no still from playing media, leave it default wallpaper
+            homeRestoreJob?.cancel()
+            homeRestoreJob = null
+            lockRestoreJob?.cancel()
+            lockRestoreJob = null
+            _isHomeRestoreActive.value = true
+            _isLockRestoreActive.value = true
         } else {
             armRestoreJob(false)
             if (_separateScreens.value) {
@@ -160,6 +171,19 @@ object WallpaperState {
                 _isLockRestoreActive.value = _isHomeRestoreActive.value
             }
         }
+    }
+
+    fun onMediaAppClosed(context: Context) {
+        homeRestoreJob?.cancel()
+        homeRestoreJob = null
+        lockRestoreJob?.cancel()
+        lockRestoreJob = null
+        _isPlaying.value = false
+        _currentArt.value = null
+        _trackTitle.value = null
+        _isHomeRestoreActive.value = true
+        _isLockRestoreActive.value = true
+        notifySettingsChanged()
     }
 
     private fun armRestoreJob(isLockScreen: Boolean) {
@@ -210,12 +234,73 @@ object WallpaperState {
         }
     }
 
-    fun getRestoreArt(isLockScreen: Boolean): Bitmap? {
-        return if (_separateScreens.value && isLockScreen) {
+    private var defaultHomeRestoreArt: Bitmap? = null
+    private var defaultLockRestoreArt: Bitmap? = null
+
+    fun getDefaultRestoreArt(isLockScreen: Boolean): Bitmap {
+        if (isLockScreen) {
+            val cached = defaultLockRestoreArt
+            if (cached != null && !cached.isRecycled) return cached
+            val bmp = createDefaultArtwork(isLock = true)
+            defaultLockRestoreArt = bmp
+            return bmp
+        } else {
+            val cached = defaultHomeRestoreArt
+            if (cached != null && !cached.isRecycled) return cached
+            val bmp = createDefaultArtwork(isLock = false)
+            defaultHomeRestoreArt = bmp
+            return bmp
+        }
+    }
+
+    private fun createDefaultArtwork(isLock: Boolean): Bitmap {
+        val w = 1080
+        val h = 2400
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+
+        val colors = if (isLock) {
+            intArrayOf(
+                android.graphics.Color.parseColor("#0F2027"),
+                android.graphics.Color.parseColor("#203A43"),
+                android.graphics.Color.parseColor("#2C5364")
+            )
+        } else {
+            intArrayOf(
+                android.graphics.Color.parseColor("#2E1065"),
+                android.graphics.Color.parseColor("#701A75"),
+                android.graphics.Color.parseColor("#9D174D"),
+                android.graphics.Color.parseColor("#EA580C")
+            )
+        }
+
+        val gradient = android.graphics.LinearGradient(
+            0f, 0f, 0f, h.toFloat(),
+            colors,
+            null,
+            android.graphics.Shader.TileMode.CLAMP
+        )
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            shader = gradient
+        }
+        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
+
+        val shapePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.argb(40, 255, 255, 255)
+            style = android.graphics.Paint.Style.FILL
+        }
+        canvas.drawCircle(w * 0.5f, h * 0.4f, w * 0.35f, shapePaint)
+
+        return bmp
+    }
+
+    fun getRestoreArt(isLockScreen: Boolean): Bitmap {
+        val custom = if (_separateScreens.value && isLockScreen) {
             _lockRestoreArt.value ?: _homeRestoreArt.value
         } else {
             _homeRestoreArt.value
         }
+        return (custom?.takeUnless { it.isRecycled }) ?: getDefaultRestoreArt(isLockScreen)
     }
 
     fun getPreparedBlur(isLockScreen: Boolean): Bitmap? {
@@ -286,13 +371,18 @@ object WallpaperState {
     fun captureSystemDefaultWallpaper(context: Context) {
         if (systemCaptureAttempted) return
         systemCaptureAttempted = true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            return
-        }
         scope.launch(Dispatchers.IO) {
             try {
                 val wm = WallpaperManager.getInstance(context)
-                val drawable = wm.drawable ?: wm.builtInDrawable
+                val drawable = try {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                        wm.drawable ?: wm.builtInDrawable
+                    } else {
+                        wm.builtInDrawable
+                    }
+                } catch (_: SecurityException) {
+                    null
+                }
                 if (drawable != null) {
                     val w = drawable.intrinsicWidth.coerceIn(1080, 1440)
                     val h = drawable.intrinsicHeight.coerceIn(1920, 3200)

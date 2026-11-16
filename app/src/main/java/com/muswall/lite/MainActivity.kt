@@ -190,8 +190,8 @@ fun MainScreen() {
     }
 
     val sampleArt = remember { generateSampleArtwork() }
-    val sampleHomeRestore = remember { generateSampleRestoreArtwork(false) }
-    val sampleLockRestore = remember { generateSampleRestoreArtwork(true) }
+    val sampleHomeRestore = remember { WallpaperState.getDefaultRestoreArt(false) }
+    val sampleLockRestore = remember { WallpaperState.getDefaultRestoreArt(true) }
 
     val displayArt = currentArt ?: sampleArt
     val effectiveHomeRestore = homeRestoreArt ?: sampleHomeRestore
