@@ -123,7 +123,17 @@ class AlbumArtWallpaperService : WallpaperService() {
                         else -> false
                     }
 
-                    if (!isRestored && artChanged && newArt != null) {
+                    if (newArt == null) {
+                        // When no artwork: skip apply entirely, stay on default wallpaper
+                        lastRenderedArt = null
+                        lastRenderedBlur = null
+                        if (isVisibleState) {
+                            scheduleRender()
+                        }
+                        return@collect
+                    }
+
+                    if (!isRestored && artChanged) {
                         if (isVisibleState) {
                             previousBitmap = lastRenderedBlur ?: lastRenderedArt ?: WallpaperState.getRestoreArt(cachedIsLocked)
                             lastRenderedArt = newArt
@@ -393,20 +403,29 @@ class AlbumArtWallpaperService : WallpaperService() {
             if (!isVisibleState) return
 
             val holder = surfaceHolder ?: return
+            if (!holder.surface.isValid) return
             var canvas: Canvas? = null
 
             try {
                 canvas = try {
                     holder.lockHardwareCanvas()
-                } catch (_: Exception) {
-                    holder.lockCanvas()
+                } catch (_: Throwable) {
+                    try {
+                        holder.lockCanvas()
+                    } catch (_: Throwable) {
+                        null
+                    }
                 }
                 if (canvas != null) {
                     drawFrame(canvas)
                 }
+            } catch (_: Throwable) {
             } finally {
                 if (canvas != null) {
-                    holder.unlockCanvasAndPost(canvas)
+                    try {
+                        holder.unlockCanvasAndPost(canvas)
+                    } catch (_: Throwable) {
+                    }
                 }
             }
         }

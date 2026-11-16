@@ -400,36 +400,42 @@ object WallpaperState {
     private fun schedulePrecomputeBlur() {
         precomputeJob?.cancel()
         precomputeJob = scope.launch(Dispatchers.Default) {
-            val art = _currentArt.value
-            val home = _homeConfig.value
-            val lock = _lockConfig.value
+            try {
+                val art = _currentArt.value
+                val home = _homeConfig.value
+                val lock = _lockConfig.value
 
-            if (art != null) {
-                _preparedHomeBlur.value = if (home.effectType != ScreenConfig.EFFECT_STILL && home.blurPercent > 0) {
-                    WallpaperRenderer.getNormalBlur(art, home.blurPercent)
-                } else null
-
-                if (_separateScreens.value && (lock.effectType != home.effectType || lock.blurPercent != home.blurPercent)) {
-                    _preparedLockBlur.value = if (lock.effectType != ScreenConfig.EFFECT_STILL && lock.blurPercent > 0) {
-                        WallpaperRenderer.getNormalBlur(art, lock.blurPercent)
+                if (art != null && !art.isRecycled) {
+                    _preparedHomeBlur.value = if (home.effectType != ScreenConfig.EFFECT_STILL && home.blurPercent > 0) {
+                        WallpaperRenderer.getNormalBlur(art, home.blurPercent)
                     } else null
+
+                    if (_separateScreens.value && (lock.effectType != home.effectType || lock.blurPercent != home.blurPercent)) {
+                        _preparedLockBlur.value = if (lock.effectType != ScreenConfig.EFFECT_STILL && lock.blurPercent > 0) {
+                            WallpaperRenderer.getNormalBlur(art, lock.blurPercent)
+                        } else null
+                    } else {
+                        _preparedLockBlur.value = _preparedHomeBlur.value
+                    }
                 } else {
-                    _preparedLockBlur.value = _preparedHomeBlur.value
+                    _preparedHomeBlur.value = null
+                    _preparedLockBlur.value = null
                 }
-            }
 
-            val homeRestore = _homeRestoreArt.value
-            if (homeRestore != null && home.applyEffectsToRestore && home.restoreBlurPercent > 0) {
-                _preparedHomeRestoreBlur.value = WallpaperRenderer.getNormalBlur(homeRestore, home.restoreBlurPercent)
-            } else {
-                _preparedHomeRestoreBlur.value = null
-            }
+                val homeRestore = _homeRestoreArt.value
+                if (homeRestore != null && !homeRestore.isRecycled && home.applyEffectsToRestore && home.restoreBlurPercent > 0) {
+                    _preparedHomeRestoreBlur.value = WallpaperRenderer.getNormalBlur(homeRestore, home.restoreBlurPercent)
+                } else {
+                    _preparedHomeRestoreBlur.value = null
+                }
 
-            val lockRestore = if (_separateScreens.value) (_lockRestoreArt.value ?: homeRestore) else homeRestore
-            if (lockRestore != null && lock.applyEffectsToRestore && lock.restoreBlurPercent > 0) {
-                _preparedLockRestoreBlur.value = WallpaperRenderer.getNormalBlur(lockRestore, lock.restoreBlurPercent)
-            } else {
-                _preparedLockRestoreBlur.value = null
+                val lockRestore = if (_separateScreens.value) (_lockRestoreArt.value ?: homeRestore) else homeRestore
+                if (lockRestore != null && !lockRestore.isRecycled && lock.applyEffectsToRestore && lock.restoreBlurPercent > 0) {
+                    _preparedLockRestoreBlur.value = WallpaperRenderer.getNormalBlur(lockRestore, lock.restoreBlurPercent)
+                } else {
+                    _preparedLockRestoreBlur.value = null
+                }
+            } catch (_: Throwable) {
             }
         }
     }
@@ -506,16 +512,28 @@ object WallpaperState {
             val homeFile = File(context.filesDir, HOME_RESTORE_IMAGE)
             if (homeFile.exists()) {
                 try {
-                    _homeRestoreArt.value = BitmapFactory.decodeFile(homeFile.absolutePath)
-                } catch (_: Exception) {
+                    val bmp = BitmapFactory.decodeFile(homeFile.absolutePath)
+                    if (bmp != null) {
+                        _homeRestoreArt.value = bmp
+                    } else {
+                        homeFile.delete()
+                    }
+                } catch (_: Throwable) {
+                    try { homeFile.delete() } catch (_: Throwable) {}
                 }
             }
 
             val lockFile = File(context.filesDir, LOCK_RESTORE_IMAGE)
             if (lockFile.exists()) {
                 try {
-                    _lockRestoreArt.value = BitmapFactory.decodeFile(lockFile.absolutePath)
-                } catch (_: Exception) {
+                    val bmp = BitmapFactory.decodeFile(lockFile.absolutePath)
+                    if (bmp != null) {
+                        _lockRestoreArt.value = bmp
+                    } else {
+                        lockFile.delete()
+                    }
+                } catch (_: Throwable) {
+                    try { lockFile.delete() } catch (_: Throwable) {}
                 }
             }
 

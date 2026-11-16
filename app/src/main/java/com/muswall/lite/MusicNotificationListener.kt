@@ -232,30 +232,49 @@ class MusicNotificationListener : NotificationListenerService() {
         pkg: String
     ) {
         val metadata = controller.metadata
-        var bitmap: Bitmap? = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-        if (bitmap == null) {
-            bitmap = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
+        var bitmap: Bitmap? = try {
+            metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
+        } catch (_: Throwable) {
+            null
+        }
+
+        if (bitmap != null && (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0)) {
+            bitmap = null
         }
 
         if (bitmap == null && artUriStr != null) {
+            var connection: HttpURLConnection? = null
             try {
                 val uri = Uri.parse(artUriStr)
                 if (uri.scheme == "http" || uri.scheme == "https") {
-                    val connection = URL(artUriStr).openConnection() as HttpURLConnection
+                    connection = URL(artUriStr).openConnection() as HttpURLConnection
                     connection.connectTimeout = 3000
                     connection.readTimeout = 3000
+                    connection.instanceFollowRedirects = true
                     connection.doInput = true
                     connection.connect()
-                    connection.inputStream.use { stream ->
-                        bitmap = BitmapFactory.decodeStream(stream)
+                    if (connection.responseCode in 200..299) {
+                        connection.inputStream.use { stream ->
+                            bitmap = BitmapFactory.decodeStream(stream)
+                        }
                     }
                 } else {
                     contentResolver.openInputStream(uri)?.use { stream ->
                         bitmap = BitmapFactory.decodeStream(stream)
                     }
                 }
-            } catch (_: Exception) {
+            } catch (_: Throwable) {
+            } finally {
+                try {
+                    connection?.disconnect()
+                } catch (_: Throwable) {
+                }
             }
+        }
+
+        if (bitmap != null && (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0)) {
+            bitmap = null
         }
 
         if (bitmap == null) {
@@ -282,18 +301,22 @@ class MusicNotificationListener : NotificationListenerService() {
     }
 
     private fun optimizeBitmapSize(bitmap: Bitmap?): Bitmap? {
-        if (bitmap == null || bitmap.isRecycled) return null
+        if (bitmap == null || bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return null
         val maxDim = 1080
         if (bitmap.width <= maxDim && bitmap.height <= maxDim) return bitmap
 
-        val scale = maxDim.toFloat() / max(bitmap.width, bitmap.height)
-        val targetW = (bitmap.width * scale).toInt().coerceAtLeast(1)
-        val targetH = (bitmap.height * scale).toInt().coerceAtLeast(1)
-        val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
-        if (scaled !== bitmap) {
-            bitmap.recycle()
+        return try {
+            val scale = maxDim.toFloat() / max(bitmap.width, bitmap.height)
+            val targetW = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val targetH = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            val scaled = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+            if (scaled !== bitmap && !bitmap.isRecycled) {
+                bitmap.recycle()
+            }
+            scaled
+        } catch (_: Throwable) {
+            bitmap
         }
-        return scaled
     }
 
     private fun extractArtFromNotifications(targetPkg: String): Bitmap? {

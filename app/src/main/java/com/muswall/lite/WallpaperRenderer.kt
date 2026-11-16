@@ -354,78 +354,82 @@ object WallpaperRenderer {
 
     @Synchronized
     fun getNormalBlur(source: Bitmap, blurPercent: Int): Bitmap {
-        if (blurPercent <= 0 || source.isRecycled) return source
+        if (blurPercent <= 0 || source.isRecycled || source.width <= 0 || source.height <= 0) return source
         val key = System.identityHashCode(source)
         val cached = cachedBlurredBitmap
         if (cached != null && cachedSourceKey == key && cachedBlurPercent == blurPercent && !cached.isRecycled) {
             return cached
         }
 
-        val targetWidth = when {
-            blurPercent <= 5 -> 512
-            blurPercent <= 15 -> 400
-            blurPercent <= 40 -> 280
-            blurPercent <= 70 -> 180
-            else -> 120
-        }.coerceAtMost(source.width)
+        return try {
+            val targetWidth = when {
+                blurPercent <= 5 -> 512
+                blurPercent <= 15 -> 400
+                blurPercent <= 40 -> 280
+                blurPercent <= 70 -> 180
+                else -> 120
+            }.coerceAtMost(source.width)
 
-        val targetHeight = (targetWidth * source.height / source.width).coerceIn(48, 1200)
-        val small = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
-        val output = small.copy(Bitmap.Config.ARGB_8888, true)
-        if (small !== output) {
-            small.recycle()
+            val targetHeight = (targetWidth * source.height / source.width).coerceIn(48, 1200)
+            val small = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
+            val output = small.copy(Bitmap.Config.ARGB_8888, true)
+            if (small !== output && !small.isRecycled) {
+                small.recycle()
+            }
+
+            val w = output.width
+            val h = output.height
+            val total = w * h
+
+            val pixels = if (scratchPixels != null && scratchPixels!!.size >= total) {
+                scratchPixels!!
+            } else {
+                val newArr = IntArray(total)
+                scratchPixels = newArr
+                newArr
+            }
+
+            output.getPixels(pixels, 0, w, 0, 0, w, h)
+
+            val passes: Int
+            val radius: Int
+            when {
+                blurPercent <= 2 -> {
+                    passes = 1
+                    radius = 1
+                }
+                blurPercent <= 5 -> {
+                    passes = 2
+                    radius = 1
+                }
+                blurPercent <= 15 -> {
+                    passes = 2
+                    radius = 1 + (blurPercent - 5) / 3
+                }
+                blurPercent <= 40 -> {
+                    passes = 3
+                    radius = 2 + (blurPercent - 15) * 8 / 25
+                }
+                blurPercent <= 70 -> {
+                    passes = 3
+                    radius = 6 + (blurPercent - 40) * 10 / 30
+                }
+                else -> {
+                    passes = 3
+                    radius = 12 + (blurPercent - 70) * 16 / 30
+                }
+            }
+
+            multiPassBoxBlur(pixels, w, h, radius, passes)
+            output.setPixels(pixels, 0, w, 0, 0, w, h)
+
+            cachedBlurredBitmap = output
+            cachedSourceKey = key
+            cachedBlurPercent = blurPercent
+            output
+        } catch (_: Throwable) {
+            source
         }
-
-        val w = output.width
-        val h = output.height
-        val total = w * h
-
-        val pixels = if (scratchPixels != null && scratchPixels!!.size >= total) {
-            scratchPixels!!
-        } else {
-            val newArr = IntArray(total)
-            scratchPixels = newArr
-            newArr
-        }
-
-        output.getPixels(pixels, 0, w, 0, 0, w, h)
-
-        val passes: Int
-        val radius: Int
-        when {
-            blurPercent <= 2 -> {
-                passes = 1
-                radius = 1
-            }
-            blurPercent <= 5 -> {
-                passes = 2
-                radius = 1
-            }
-            blurPercent <= 15 -> {
-                passes = 2
-                radius = 1 + (blurPercent - 5) / 3
-            }
-            blurPercent <= 40 -> {
-                passes = 3
-                radius = 2 + (blurPercent - 15) * 8 / 25
-            }
-            blurPercent <= 70 -> {
-                passes = 3
-                radius = 6 + (blurPercent - 40) * 10 / 30
-            }
-            else -> {
-                passes = 3
-                radius = 12 + (blurPercent - 70) * 16 / 30
-            }
-        }
-
-        multiPassBoxBlur(pixels, w, h, radius, passes)
-        output.setPixels(pixels, 0, w, 0, 0, w, h)
-
-        cachedBlurredBitmap = output
-        cachedSourceKey = key
-        cachedBlurPercent = blurPercent
-        return output
     }
 
     private fun multiPassBoxBlur(pixels: IntArray, w: Int, h: Int, r: Int, passes: Int = 3) {

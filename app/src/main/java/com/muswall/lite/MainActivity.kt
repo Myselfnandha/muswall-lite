@@ -20,6 +20,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -50,12 +51,20 @@ import java.io.File
 import java.io.FileOutputStream
 
 class MainActivity : ComponentActivity() {
+    private val isNotificationGranted = mutableStateOf(true)
+    private val isWallpaperActive = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WallpaperState.init(applicationContext)
+        isNotificationGranted.value = checkNotificationAccess(this)
+        isWallpaperActive.value = checkWallpaperActive(this)
         setContent {
             MusWallLiteTheme {
-                MainScreen()
+                MainScreen(
+                    isNotificationGranted = isNotificationGranted.value,
+                    isWallpaperActive = isWallpaperActive.value
+                )
             }
         }
     }
@@ -64,6 +73,25 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (WallpaperState.homeRestoreArt.value == null) {
             WallpaperState.captureSystemDefaultWallpaper(applicationContext)
+        }
+        isNotificationGranted.value = checkNotificationAccess(this)
+        isWallpaperActive.value = checkWallpaperActive(this)
+    }
+
+    private fun checkNotificationAccess(context: Context): Boolean {
+        return try {
+            NotificationManagerCompat.getEnabledListenerPackages(context).contains(context.packageName)
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    private fun checkWallpaperActive(context: Context): Boolean {
+        return try {
+            val wm = WallpaperManager.getInstance(context)
+            wm.wallpaperInfo?.packageName == context.packageName
+        } catch (_: Throwable) {
+            false
         }
     }
 }
@@ -86,7 +114,10 @@ fun MusWallLiteTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun MainScreen() {
+fun MainScreen(
+    isNotificationGranted: Boolean = true,
+    isWallpaperActive: Boolean = false
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -372,6 +403,52 @@ fun MainScreen() {
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            if (!isNotificationGranted) {
+                Card(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2A1C10)),
+                    border = BorderStroke(1.dp, Color(0xFFFFB74D)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
+                        .clickable {
+                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "⚠️ Notification Access Required",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = Color(0xFFFFB74D)
+                            )
+                            Text(
+                                text = "Tap here to grant permission so MusWall Lite can detect playing media artwork.",
+                                fontSize = 10.sp,
+                                color = Color(0xFFCCCCCC)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Button(
+                            onClick = { context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB74D)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Text("Grant", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        }
+                    }
+                }
+            }
+
             Card(
                 shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1428,9 +1505,17 @@ fun MainScreen() {
                     .fillMaxWidth()
                     .height(54.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isWallpaperActive) Color(0xFF1E2838) else MaterialTheme.colorScheme.primary
+                ),
+                border = if (isWallpaperActive) BorderStroke(1.5.dp, MaterialTheme.colorScheme.secondary) else null
             ) {
-                Text("Set as Live Wallpaper", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                Text(
+                    text = if (isWallpaperActive) "✓ Live Wallpaper Active (Re-apply)" else "Set as Live Wallpaper",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isWallpaperActive) MaterialTheme.colorScheme.secondary else Color.Black
+                )
             }
 
             Row(
@@ -1444,9 +1529,18 @@ fun MainScreen() {
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isNotificationGranted) MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f) else Color(0xFFFFB74D)
+                    )
                 ) {
-                    Text("Notification Access", fontSize = 12.sp, textAlign = TextAlign.Center)
+                    Text(
+                        text = if (isNotificationGranted) "✓ Notification Access" else "⚠️ Notification Access",
+                        fontSize = 11.sp,
+                        color = if (isNotificationGranted) MaterialTheme.colorScheme.secondary else Color(0xFFFFB74D),
+                        textAlign = TextAlign.Center
+                    )
                 }
 
                 OutlinedButton(
