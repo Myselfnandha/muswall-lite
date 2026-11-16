@@ -27,6 +27,10 @@ class ScreenConfigTest {
         assertEquals(0, config.wallpaperOffsetXPercent)
         assertTrue(config.autoHorizontalFraming)
         assertEquals(ScreenConfig.ASPECT_FIT_WIDTH, config.aspectFitMode)
+        assertFalse(config.amoledMode)
+        assertFalse(config.scrimEnabled)
+        assertFalse(config.showTrackInfo)
+        assertEquals(25, config.trackInfoOffsetYPercent)
     }
 
     @Test
@@ -35,12 +39,16 @@ class ScreenConfigTest {
             effectType = ScreenConfig.EFFECT_BLUR,
             blurPercent = 75,
             dimPercent = 40,
-            restoreDelaySeconds = 60
+            restoreDelaySeconds = 60,
+            amoledMode = true,
+            scrimEnabled = true,
+            showTrackInfo = true
         )
 
         val modified = original.copy(
             blurPercent = 50,
-            applyEffectsToRestore = true
+            applyEffectsToRestore = true,
+            amoledMode = false
         )
 
         assertEquals(ScreenConfig.EFFECT_BLUR, modified.effectType)
@@ -48,6 +56,31 @@ class ScreenConfigTest {
         assertEquals(40, modified.dimPercent)
         assertEquals(60, modified.restoreDelaySeconds)
         assertTrue(modified.applyEffectsToRestore)
+        assertFalse(modified.amoledMode)
+        assertTrue(modified.scrimEnabled)
+        assertTrue(modified.showTrackInfo)
+    }
+
+    @Test
+    fun testPresetsCreation() {
+        val amoledHome = ScreenConfig.createPreset(ScreenConfig.PRESET_AMOLED, isLockScreen = false)
+        assertTrue(amoledHome.amoledMode)
+        assertEquals(ScreenConfig.EFFECT_STILL, amoledHome.effectType)
+        assertEquals(-35, amoledHome.stillOffsetYPercent)
+
+        val amoledLock = ScreenConfig.createPreset(ScreenConfig.PRESET_AMOLED, isLockScreen = true)
+        assertTrue(amoledLock.amoledMode)
+        assertEquals(35, amoledLock.stillOffsetYPercent)
+
+        val immersive = ScreenConfig.createPreset(ScreenConfig.PRESET_IMMERSIVE, isLockScreen = false)
+        assertEquals(ScreenConfig.EFFECT_BLUR, immersive.effectType)
+        assertEquals(65, immersive.blurPercent)
+        assertTrue(immersive.scrimEnabled)
+
+        val poster = ScreenConfig.createPreset(ScreenConfig.PRESET_POSTER, isLockScreen = false)
+        assertEquals(ScreenConfig.EFFECT_BLUR_STILL, poster.effectType)
+        assertEquals(94, poster.stillScalePercent)
+        assertTrue(poster.scrimEnabled)
     }
 
     @Test

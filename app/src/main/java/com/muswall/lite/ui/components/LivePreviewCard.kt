@@ -28,6 +28,7 @@ fun LivePreviewCard(
     activeTab: Int,
     onTabSelect: (Int) -> Unit,
     onTogglePreviewRestore: (Boolean) -> Unit,
+    onCycleDemoArt: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -61,6 +62,12 @@ fun LivePreviewCard(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    if (onCycleDemoArt != null && !previewShowingRestore) {
+                        AssistChip(
+                            onClick = onCycleDemoArt,
+                            label = { Text("🔀 Cover", fontSize = 11.sp) }
+                        )
+                    }
                     FilterChip(
                         selected = !previewShowingRestore,
                         onClick = { onTogglePreviewRestore(false) },

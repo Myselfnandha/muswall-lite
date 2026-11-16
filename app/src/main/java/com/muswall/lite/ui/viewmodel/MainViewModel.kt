@@ -7,6 +7,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.muswall.lite.WallpaperState
+import com.muswall.lite.data.repository.WallpaperConfigRepository
 import com.muswall.lite.domain.model.ScreenConfig
 import com.muswall.lite.ui.util.PreviewUtils
 import kotlinx.coroutines.delay
@@ -43,6 +44,9 @@ class MainViewModel : ViewModel() {
     private val _previewAnimProgress = MutableStateFlow(1f)
     val previewAnimProgress = _previewAnimProgress.asStateFlow()
 
+    private val _demoCoverIndex = MutableStateFlow(0)
+    val demoCoverIndex = _demoCoverIndex.asStateFlow()
+
     init {
         viewModelScope.launch {
             WallpaperState.homeConfig.collect {
@@ -72,6 +76,11 @@ class MainViewModel : ViewModel() {
 
     fun setRecoverTab(tab: Int) {
         _recoverTab.value = tab
+    }
+
+    fun cycleDemoArtwork() {
+        val list = PreviewUtils.getDemoArtworks()
+        _demoCoverIndex.value = (_demoCoverIndex.value + 1) % list.size
     }
 
     fun updateHomeConfig(context: Context, newConfig: ScreenConfig) {
@@ -117,6 +126,25 @@ class MainViewModel : ViewModel() {
         _localHomeConfig.value = WallpaperState.homeConfig.value
         _localLockConfig.value = WallpaperState.lockConfig.value
         _localSeparateScreens.value = WallpaperState.separateScreens.value
+    }
+
+    fun exportConfigJson(context: Context): String {
+        val repo = WallpaperConfigRepository(context.applicationContext)
+        return repo.exportConfigJson()
+    }
+
+    fun importConfigJson(context: Context, jsonStr: String): Boolean {
+        val repo = WallpaperConfigRepository(context.applicationContext)
+        val success = repo.importConfigJson(jsonStr)
+        if (success) {
+            _localHomeConfig.value = repo.getHomeConfig()
+            _localLockConfig.value = repo.getLockConfig()
+            _localSeparateScreens.value = repo.isSeparateScreens()
+            WallpaperState.updateHomeConfig(context, _localHomeConfig.value)
+            WallpaperState.updateLockConfig(context, _localLockConfig.value)
+            WallpaperState.setSeparateScreens(context, _localSeparateScreens.value)
+        }
+        return success
     }
 
     fun playPreviewTransition(targetRestoreState: Boolean) {

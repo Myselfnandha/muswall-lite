@@ -21,10 +21,11 @@ muswall-lite/
 │       │   │   ├── MusicNotificationListener.kt     # Media notification listener & art extraction
 │       │   │   ├── domain/
 │       │   │   │   └── model/
-│       │   │   │       └── ScreenConfig.kt          # Domain entity & configuration specifications
+│       │   │   │       ├── ScreenConfig.kt          # Domain entity & configuration specifications
+│       │   │   │       └── ConfigJsonAdapter.kt     # Pure Kotlin JSON serializer & parser
 │       │   │   ├── data/
 │       │   │   │   └── repository/
-│       │   │   │       ├── WallpaperConfigRepository.kt # SharedPreferences persistence
+│       │   │   │       ├── WallpaperConfigRepository.kt # SharedPreferences & JSON backup persistence
 │       │   │   │       └── RestoreImageRepository.kt    # Disk file I/O & system wallpaper capture
 │       │   │   ├── graphics/
 │       │   │   │   ├── BoxBlurEngine.kt             # High-performance multi-pass box blur
@@ -53,7 +54,8 @@ muswall-lite/
 │           └── java/com/muswall/lite/
 │               └── domain/
 │                   └── model/
-│                       └── ScreenConfigTest.kt      # Configuration boundary & default unit tests
+│                       ├── ScreenConfigTest.kt      # Configuration boundary & default unit tests
+│                       └── ConfigJsonTest.kt        # JSON serialization & backup verification tests
 ├── gradle/
 │   └── wrapper/                       # Gradle wrapper binaries & properties (Gradle 8.14)
 ├── build.gradle.kts                   # Top-level build configuration

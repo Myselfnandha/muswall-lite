@@ -62,3 +62,17 @@
 - **Context:** Release builds and version tagging must occur through official GitHub Actions workflows with secure keystore signing and automated GitHub Releases.
 - **Decision:** All releases are built using `.github/workflows/build-release.yml` triggered by Git tags (`v*`).
 - **Consequences:** Reproducible, verifiable builds with signed APK artifacts and automated changelogs.
+
+---
+
+## ADR-009: Aesthetic Presets Engine & Icon Legibility Scrim
+- **Context:** Manual slider configuration is cumbersome for new users, and bright album covers can severely reduce clock and app dock icon legibility on the home screen.
+- **Decision:** Introduced 1-tap curated presets (`Balanced`, `AMOLED Dark`, `Immersive Blur`, `Minimal Card`, `Poster Flow`) and a smart transparent-to-black top/bottom gradient scrim (`scrimEnabled`).
+- **Consequences:** Instant setup for diverse tastes, enhanced legibility on AMOLED and LCD screens with zero battery overhead.
+
+---
+
+## ADR-010: Pure Kotlin JSON Configuration Adapter
+- **Context:** Using `org.json.JSONObject` from the Android SDK causes un-mocked stub exceptions in pure JVM unit test runners and binds serialization to platform binaries.
+- **Decision:** Implemented `ConfigJsonAdapter` using pure Kotlin string building and robust regex parsing.
+- **Consequences:** 100% JVM unit testability with zero mockito/Robolectric overhead, zero external dependencies, and seamless settings backup and restoration.

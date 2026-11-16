@@ -17,6 +17,8 @@ fun StatusActionCard(
     hasUnsavedChanges: Boolean,
     onSave: () -> Unit,
     onDiscard: () -> Unit,
+    onExportJson: () -> Unit,
+    onImportJson: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -91,6 +93,26 @@ fun StatusActionCard(
                     ) {
                         Text("Discard", fontSize = 13.sp, color = Color.White)
                     }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onExportJson,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("📤 Backup Settings", fontSize = 11.sp)
+                }
+                OutlinedButton(
+                    onClick = onImportJson,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("📥 Restore Backup", fontSize = 11.sp)
                 }
             }
         }

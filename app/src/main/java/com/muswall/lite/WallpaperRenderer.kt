@@ -22,6 +22,19 @@ object WallpaperRenderer {
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
+    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        isFakeBoldText = true
+    }
+    private val badgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    private val badgeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = Color.argb(60, 255, 255, 255)
+    }
     private val renderMatrix = Matrix()
     private val clipPath = Path()
 
@@ -44,7 +57,8 @@ object WallpaperRenderer {
         preparedBlur: Bitmap? = null,
         preparedRestoreBlur: Bitmap? = null,
         xOffset: Float = 0.5f,
-        displayWidth: Int = 0
+        displayWidth: Int = 0,
+        trackTitle: String? = null
     ) {
         if (width <= 0 || height <= 0) return
 
@@ -103,35 +117,48 @@ object WallpaperRenderer {
                     drawFullBleed(canvas, targetArt, width, height, visibleW, progress, screenCenterX, config.wallpaperOffsetYPercent, effectiveOffsetX)
                 }
             } else {
-                when (config.effectType) {
-                    ScreenConfig.EFFECT_BLUR -> {
-                        if (config.aspectFitMode == ScreenConfig.ASPECT_FIT_WIDTH) {
+                if (config.amoledMode) {
+                    drawAmoledBackground(canvas, width, height)
+                    drawStill(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
+                } else {
+                    when (config.effectType) {
+                        ScreenConfig.EFFECT_BLUR -> {
+                            if (config.aspectFitMode == ScreenConfig.ASPECT_FIT_WIDTH) {
+                                renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent.coerceAtLeast(35), progress, preparedBlur, screenCenterX, 0, effectiveOffsetX)
+                                applyDimming(canvas, width, height, config.dimPercent)
+                                drawFitWidth(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
+                            } else {
+                                if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE && progress < 1f) {
+                                    drawFullBleed(canvas, targetArt, width, height, visibleW, 1f - progress, screenCenterX, config.wallpaperOffsetYPercent, effectiveOffsetX)
+                                }
+                                renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX, config.wallpaperOffsetYPercent, effectiveOffsetX)
+                                applyDimming(canvas, width, height, config.dimPercent)
+                            }
+                        }
+                        ScreenConfig.EFFECT_STILL -> {
+                            drawFallbackBackground(canvas, width, height)
+                            applyDimming(canvas, width, height, config.dimPercent)
+                            drawStill(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
+                        }
+                        ScreenConfig.EFFECT_BLUR_STILL -> {
                             renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent.coerceAtLeast(35), progress, preparedBlur, screenCenterX, 0, effectiveOffsetX)
                             applyDimming(canvas, width, height, config.dimPercent)
-                            drawFitWidth(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
-                        } else {
-                            if (transitionMode == ScreenConfig.TRANSITION_BLUR_DISSOLVE && progress < 1f) {
-                                drawFullBleed(canvas, targetArt, width, height, visibleW, 1f - progress, screenCenterX, config.wallpaperOffsetYPercent, effectiveOffsetX)
-                            }
+                            drawStill(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
+                        }
+                        else -> {
                             renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX, config.wallpaperOffsetYPercent, effectiveOffsetX)
                             applyDimming(canvas, width, height, config.dimPercent)
                         }
                     }
-                    ScreenConfig.EFFECT_STILL -> {
-                        drawFallbackBackground(canvas, width, height)
-                        applyDimming(canvas, width, height, config.dimPercent)
-                        drawStill(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
-                    }
-                    ScreenConfig.EFFECT_BLUR_STILL -> {
-                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent.coerceAtLeast(35), progress, preparedBlur, screenCenterX, 0, effectiveOffsetX)
-                        applyDimming(canvas, width, height, config.dimPercent)
-                        drawStill(canvas, targetArt, width, height, visibleW, config, progress, screenCenterX)
-                    }
-                    else -> {
-                        renderBlurredArt(canvas, targetArt, width, height, visibleW, config.blurPercent, progress, preparedBlur, screenCenterX, config.wallpaperOffsetYPercent, effectiveOffsetX)
-                        applyDimming(canvas, width, height, config.dimPercent)
-                    }
                 }
+            }
+
+            if (config.scrimEnabled) {
+                drawLegibilityScrim(canvas, width, height)
+            }
+
+            if (config.showTrackInfo && !effectiveRestoreActive && !trackTitle.isNullOrBlank()) {
+                drawTrackInfoBadge(canvas, width, height, screenCenterX, trackTitle, config.trackInfoOffsetYPercent, progress)
             }
 
             canvas.restore()
@@ -161,6 +188,76 @@ object WallpaperRenderer {
     private fun drawFallbackBackground(canvas: Canvas, width: Int, height: Int) {
         overlayPaint.color = Color.parseColor("#0C0C12")
         canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
+    }
+
+    private fun drawAmoledBackground(canvas: Canvas, width: Int, height: Int) {
+        overlayPaint.color = Color.BLACK
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
+    }
+
+    private fun drawLegibilityScrim(canvas: Canvas, width: Int, height: Int) {
+        val topH = height * 0.14f
+        val topShader = android.graphics.LinearGradient(
+            0f, 0f, 0f, topH,
+            Color.argb(120, 0, 0, 0),
+            Color.TRANSPARENT,
+            android.graphics.Shader.TileMode.CLAMP
+        )
+        overlayPaint.shader = topShader
+        canvas.drawRect(0f, 0f, width.toFloat(), topH, overlayPaint)
+
+        val bottomH = height * 0.20f
+        val bottomY = height - bottomH
+        val bottomShader = android.graphics.LinearGradient(
+            0f, bottomY, 0f, height.toFloat(),
+            Color.TRANSPARENT,
+            Color.argb(140, 0, 0, 0),
+            android.graphics.Shader.TileMode.CLAMP
+        )
+        overlayPaint.shader = bottomShader
+        canvas.drawRect(0f, bottomY, width.toFloat(), height.toFloat(), overlayPaint)
+        overlayPaint.shader = null
+    }
+
+    private fun drawTrackInfoBadge(
+        canvas: Canvas,
+        width: Int,
+        height: Int,
+        centerX: Float,
+        title: String,
+        offsetYPercent: Int,
+        progress: Float
+    ) {
+        val alpha = (progress.coerceIn(0f, 1f) * 255).toInt()
+        if (alpha <= 0) return
+
+        val textSize = (width * 0.038f).coerceIn(24f, 44f)
+        textPaint.textSize = textSize
+        textPaint.alpha = alpha
+
+        val maxTextLen = 36
+        val displayTitle = if (title.length > maxTextLen) title.take(maxTextLen - 1) + "…" else title
+        val textWidth = textPaint.measureText(displayTitle)
+
+        val padX = textSize * 0.9f
+        val padY = textSize * 0.5f
+        val badgeW = textWidth + (padX * 2f)
+        val badgeH = textSize + (padY * 2f)
+
+        val normY = ((offsetYPercent + 100f) / 200f).coerceIn(0f, 1f)
+        val top = (height - badgeH) * normY
+        val left = centerX - (badgeW / 2f)
+        val rect = RectF(left, top, left + badgeW, top + badgeH)
+        val radius = badgeH / 2f
+
+        badgePaint.color = Color.argb((alpha * 0.55f).toInt(), 12, 12, 18)
+        canvas.drawRoundRect(rect, radius, radius, badgePaint)
+
+        badgeBorderPaint.alpha = (alpha * 0.35f).toInt()
+        canvas.drawRoundRect(rect, radius, radius, badgeBorderPaint)
+
+        val textY = top + padY + (textSize * 0.82f)
+        canvas.drawText(displayTitle, centerX, textY, textPaint)
     }
 
     private fun drawFitWidth(

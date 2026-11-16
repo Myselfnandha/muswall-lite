@@ -6,7 +6,7 @@ import com.muswall.lite.domain.model.ScreenConfig
 
 /**
  * Repository responsible for persisting and retrieving user wallpaper configurations
- * from SharedPreferences.
+ * from SharedPreferences, as well as JSON backup export and import.
  */
 class WallpaperConfigRepository(private val context: Context) {
 
@@ -56,7 +56,11 @@ class WallpaperConfigRepository(private val context: Context) {
             wallpaperOffsetYPercent = prefs.getInt("${prefix}_wallpaper_offset_y_percent", defaultOffset),
             wallpaperOffsetXPercent = prefs.getInt("${prefix}_wallpaper_offset_x_percent", 0),
             autoHorizontalFraming = prefs.getBoolean("${prefix}_auto_horizontal_framing", true),
-            aspectFitMode = prefs.getInt("${prefix}_aspect_fit_mode", ScreenConfig.ASPECT_FIT_WIDTH)
+            aspectFitMode = prefs.getInt("${prefix}_aspect_fit_mode", ScreenConfig.ASPECT_FIT_WIDTH),
+            amoledMode = prefs.getBoolean("${prefix}_amoled_mode", false),
+            scrimEnabled = prefs.getBoolean("${prefix}_scrim_enabled", false),
+            showTrackInfo = prefs.getBoolean("${prefix}_show_track_info", false),
+            trackInfoOffsetYPercent = prefs.getInt("${prefix}_track_info_offset_y_percent", 25)
         )
     }
 
@@ -78,8 +82,28 @@ class WallpaperConfigRepository(private val context: Context) {
             putInt("${prefix}_wallpaper_offset_x_percent", config.wallpaperOffsetXPercent)
             putBoolean("${prefix}_auto_horizontal_framing", config.autoHorizontalFraming)
             putInt("${prefix}_aspect_fit_mode", config.aspectFitMode)
+            putBoolean("${prefix}_amoled_mode", config.amoledMode)
+            putBoolean("${prefix}_scrim_enabled", config.scrimEnabled)
+            putBoolean("${prefix}_show_track_info", config.showTrackInfo)
+            putInt("${prefix}_track_info_offset_y_percent", config.trackInfoOffsetYPercent)
             apply()
         }
+    }
+
+    fun exportConfigJson(): String {
+        return com.muswall.lite.domain.model.ConfigJsonAdapter.exportBackupJson(
+            separateScreens = isSeparateScreens(),
+            home = getHomeConfig(),
+            lock = getLockConfig()
+        )
+    }
+
+    fun importConfigJson(jsonStr: String): Boolean {
+        val backup = com.muswall.lite.domain.model.ConfigJsonAdapter.parseBackup(jsonStr) ?: return false
+        setSeparateScreens(backup.first)
+        saveHomeConfig(backup.second)
+        saveLockConfig(backup.third)
+        return true
     }
 
     companion object {

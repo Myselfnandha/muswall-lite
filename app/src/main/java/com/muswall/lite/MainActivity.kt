@@ -1,7 +1,10 @@
 package com.muswall.lite
 
 import android.app.WallpaperManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -78,6 +81,7 @@ fun MainScreen(viewModel: MainViewModel) {
     val recoverTab by viewModel.recoverTab.collectAsState()
     val previewShowingRestore by viewModel.previewShowingRestore.collectAsState()
     val previewAnimProgress by viewModel.previewAnimProgress.collectAsState()
+    val demoCoverIndex by viewModel.demoCoverIndex.collectAsState()
 
     val isNotificationGranted by viewModel.isNotificationGranted.collectAsState()
     val isWallpaperActive by viewModel.isWallpaperActive.collectAsState()
@@ -89,11 +93,14 @@ fun MainScreen(viewModel: MainViewModel) {
     val lockRestoreArt by WallpaperState.lockRestoreArt.collectAsState()
     val trackTitle by WallpaperState.trackTitle.collectAsState()
 
-    val sampleArt = remember { PreviewUtils.generateSampleArtwork() }
+    val demoArtworks = remember { PreviewUtils.getDemoArtworks() }
+    val activeDemo = demoArtworks[demoCoverIndex % demoArtworks.size]
+
     val sampleHomeRestore = remember { WallpaperState.getDefaultRestoreArt(false) }
     val sampleLockRestore = remember { WallpaperState.getDefaultRestoreArt(true) }
 
-    val displayArt = currentArt ?: sampleArt
+    val displayArt = currentArt ?: activeDemo.second
+    val effectiveTitle = if (currentArt != null) trackTitle else activeDemo.first
     val effectiveHomeRestore = homeRestoreArt ?: sampleHomeRestore
     val effectiveLockRestore = if (localSeparateScreens) (lockRestoreArt ?: sampleLockRestore) else effectiveHomeRestore
 
@@ -110,7 +117,7 @@ fun MainScreen(viewModel: MainViewModel) {
     }
 
     val homePreviewBitmap = remember(
-        displayArt, effectiveHomeRestore, previewShowingRestore, localHomeConfig, previewAnimProgress, homeMusicBlur, homeRestoreBlur
+        displayArt, effectiveHomeRestore, previewShowingRestore, localHomeConfig, previewAnimProgress, homeMusicBlur, homeRestoreBlur, effectiveTitle
     ) {
         val mode = if (previewShowingRestore) localHomeConfig.restoreEffect else localHomeConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else effectiveHomeRestore
@@ -123,7 +130,8 @@ fun MainScreen(viewModel: MainViewModel) {
             mode = mode,
             previous = previous,
             preparedBlur = homeMusicBlur,
-            preparedRestoreBlur = homeRestoreBlur
+            preparedRestoreBlur = homeRestoreBlur,
+            trackTitle = effectiveTitle
         )
     }
 
@@ -142,7 +150,7 @@ fun MainScreen(viewModel: MainViewModel) {
     }
 
     val lockPreviewBitmap = remember(
-        displayArt, effectiveLockRestore, previewShowingRestore, effectiveLockConfig, previewAnimProgress, lockMusicBlur, lockRestoreBlur
+        displayArt, effectiveLockRestore, previewShowingRestore, effectiveLockConfig, previewAnimProgress, lockMusicBlur, lockRestoreBlur, effectiveTitle
     ) {
         val mode = if (previewShowingRestore) effectiveLockConfig.restoreEffect else effectiveLockConfig.applyEffect
         val previous = if (previewShowingRestore) displayArt else effectiveLockRestore
@@ -155,7 +163,8 @@ fun MainScreen(viewModel: MainViewModel) {
             mode = mode,
             previous = previous,
             preparedBlur = lockMusicBlur,
-            preparedRestoreBlur = lockRestoreBlur
+            preparedRestoreBlur = lockRestoreBlur,
+            trackTitle = effectiveTitle
         )
     }
 
@@ -196,6 +205,50 @@ fun MainScreen(viewModel: MainViewModel) {
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri: Uri? ->
         if (uri != null) launchSystemDimensionSetter(uri, true)
+    }
+
+    var showImportDialog by remember { mutableStateOf(false) }
+    var importJsonText by remember { mutableStateOf("") }
+
+    if (showImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportDialog = false },
+            title = { Text("Restore Settings Backup") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Paste JSON settings below to import:", fontSize = 13.sp)
+                    OutlinedTextField(
+                        value = importJsonText,
+                        onValueChange = { importJsonText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp),
+                        placeholder = { Text("{ \"home\": { ... } }", fontSize = 12.sp) }
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val success = viewModel.importConfigJson(context, importJsonText)
+                        if (success) {
+                            Toast.makeText(context, "Settings restored successfully!", Toast.LENGTH_SHORT).show()
+                            showImportDialog = false
+                            importJsonText = ""
+                        } else {
+                            Toast.makeText(context, "Invalid JSON settings format", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                ) {
+                    Text("Import")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showImportDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     val currentConfig = if (localSeparateScreens && activeTab == 1) localLockConfig else localHomeConfig
@@ -259,13 +312,14 @@ fun MainScreen(viewModel: MainViewModel) {
             )
 
             LivePreviewCard(
-                trackTitle = trackTitle,
+                trackTitle = effectiveTitle,
                 previewShowingRestore = previewShowingRestore,
                 homePreviewBitmap = homePreviewBitmap,
                 lockPreviewBitmap = lockPreviewBitmap,
                 activeTab = activeTab,
                 onTabSelect = { viewModel.setActiveTab(it) },
-                onTogglePreviewRestore = { viewModel.playPreviewTransition(it) }
+                onTogglePreviewRestore = { viewModel.playPreviewTransition(it) },
+                onCycleDemoArt = if (currentArt == null) { { viewModel.cycleDemoArtwork() } } else null
             )
 
             if (localSeparateScreens) {
@@ -298,6 +352,7 @@ fun MainScreen(viewModel: MainViewModel) {
                 EffectControlsCard(
                     currentConfig = currentConfig,
                     screenLabel = currentTabLabel,
+                    isLockScreen = (localSeparateScreens && activeTab == 1),
                     onConfigChange = { viewModel.updateCurrentConfig(context, it) }
                 )
 
@@ -370,7 +425,17 @@ fun MainScreen(viewModel: MainViewModel) {
                         viewModel.applyAndSaveChanges(context)
                         Toast.makeText(context, "Changes saved and applied!", Toast.LENGTH_SHORT).show()
                     },
-                    onDiscard = { viewModel.discardChanges() }
+                    onDiscard = { viewModel.discardChanges() },
+                    onExportJson = {
+                        val json = viewModel.exportConfigJson(context)
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        val clip = ClipData.newPlainText("MusWall Lite Settings", json)
+                        clipboard.setPrimaryClip(clip)
+                        Toast.makeText(context, "Settings copied to clipboard as JSON!", Toast.LENGTH_SHORT).show()
+                    },
+                    onImportJson = {
+                        showImportDialog = true
+                    }
                 )
 
                 WallpaperServiceButtons(

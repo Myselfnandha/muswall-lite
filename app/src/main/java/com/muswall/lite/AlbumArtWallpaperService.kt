@@ -453,7 +453,8 @@ class AlbumArtWallpaperService : WallpaperService() {
                 preparedBlur = preparedBlur,
                 preparedRestoreBlur = preparedRestoreBlur,
                 xOffset = currentXOffset,
-                displayWidth = displayWidth
+                displayWidth = displayWidth,
+                trackTitle = WallpaperState.trackTitle.value
             )
         }
     }

@@ -23,7 +23,8 @@ object PreviewUtils {
         mode: Int = 0,
         previous: Bitmap? = null,
         preparedBlur: Bitmap? = null,
-        preparedRestoreBlur: Bitmap? = null
+        preparedRestoreBlur: Bitmap? = null,
+        trackTitle: String? = null
     ): Bitmap {
         val pw = 280
         val ph = 600
@@ -43,7 +44,8 @@ object PreviewUtils {
             preparedBlur = preparedBlur,
             preparedRestoreBlur = preparedRestoreBlur,
             xOffset = 0.5f,
-            displayWidth = pw
+            displayWidth = pw,
+            trackTitle = trackTitle
         )
         return bmp
     }
@@ -60,20 +62,29 @@ object PreviewUtils {
         }
     }
 
-    fun generateSampleArtwork(): Bitmap {
+    private var cachedDemoArtworks: List<Pair<String, Bitmap>>? = null
+
+    fun getDemoArtworks(): List<Pair<String, Bitmap>> {
+        val cached = cachedDemoArtworks
+        if (cached != null) return cached
+
+        val list = listOf(
+            "Neon Synthwave" to createArt(intArrayOf(AndroidColor.parseColor("#7B1FA2"), AndroidColor.parseColor("#E91E63"), AndroidColor.parseColor("#FF9800")), "SYNTHWAVE"),
+            "Midnight AMOLED" to createArt(intArrayOf(AndroidColor.parseColor("#0A0E17"), AndroidColor.parseColor("#152238"), AndroidColor.parseColor("#1E3A8A")), "MIDNIGHT"),
+            "Minimal Acoustic" to createArt(intArrayOf(AndroidColor.parseColor("#44403C"), AndroidColor.parseColor("#78716C"), AndroidColor.parseColor("#A8A29E")), "ACOUSTIC"),
+            "Solar Pop" to createArt(intArrayOf(AndroidColor.parseColor("#059669"), AndroidColor.parseColor("#10B981"), AndroidColor.parseColor("#F59E0B")), "SOLAR POP")
+        )
+        cachedDemoArtworks = list
+        return list
+    }
+
+    private fun createArt(colors: IntArray, title: String): Bitmap {
         val size = 512
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
 
-        val gradient = LinearGradient(
-            0f, 0f, size.toFloat(), size.toFloat(),
-            intArrayOf(AndroidColor.parseColor("#7B1FA2"), AndroidColor.parseColor("#E91E63"), AndroidColor.parseColor("#FF9800")),
-            null,
-            Shader.TileMode.CLAMP
-        )
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = gradient
-        }
+        val gradient = LinearGradient(0f, 0f, size.toFloat(), size.toFloat(), colors, null, Shader.TileMode.CLAMP)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = gradient }
         canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), paint)
 
         val circlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -90,13 +101,17 @@ object PreviewUtils {
 
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = AndroidColor.WHITE
-            textSize = 36f
+            textSize = 34f
             textAlign = Paint.Align.CENTER
             isFakeBoldText = true
         }
-        canvas.drawText("MUSIC ART", size / 2f, size * 0.88f, textPaint)
+        canvas.drawText(title, size / 2f, size * 0.88f, textPaint)
 
         return bmp
+    }
+
+    fun generateSampleArtwork(): Bitmap {
+        return getDemoArtworks().first().second
     }
 
     fun generateSampleRestoreArtwork(isLock: Boolean): Bitmap {
