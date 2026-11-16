@@ -6,10 +6,9 @@ import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PointF
 import android.graphics.RectF
-import android.media.FaceDetector
-import kotlin.math.abs
+import com.muswall.lite.graphics.BoxBlurEngine
+import com.muswall.lite.graphics.SmartFramingDetector
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -29,10 +28,6 @@ object WallpaperRenderer {
     private var cachedSourceKey: Int = 0
     private var cachedBlurPercent: Int = -1
     private var cachedBlurredBitmap: Bitmap? = null
-    private var cachedFocalKey: Int = 0
-    private var cachedFocalXPercent: Int = 0
-    private var scratchPixels: IntArray? = null
-    private var scratchTemp: IntArray? = null
 
     @Synchronized
     fun render(
@@ -361,157 +356,13 @@ object WallpaperRenderer {
             return cached
         }
 
-        return try {
-            val targetWidth = when {
-                blurPercent <= 5 -> 512
-                blurPercent <= 15 -> 400
-                blurPercent <= 40 -> 280
-                blurPercent <= 70 -> 180
-                else -> 120
-            }.coerceAtMost(source.width)
-
-            val targetHeight = (targetWidth * source.height / source.width).coerceIn(48, 1200)
-            val small = Bitmap.createScaledBitmap(source, targetWidth, targetHeight, true)
-            val output = small.copy(Bitmap.Config.ARGB_8888, true)
-            if (small !== output && !small.isRecycled) {
-                small.recycle()
-            }
-
-            val w = output.width
-            val h = output.height
-            val total = w * h
-
-            val pixels = if (scratchPixels != null && scratchPixels!!.size >= total) {
-                scratchPixels!!
-            } else {
-                val newArr = IntArray(total)
-                scratchPixels = newArr
-                newArr
-            }
-
-            output.getPixels(pixels, 0, w, 0, 0, w, h)
-
-            val passes: Int
-            val radius: Int
-            when {
-                blurPercent <= 2 -> {
-                    passes = 1
-                    radius = 1
-                }
-                blurPercent <= 5 -> {
-                    passes = 2
-                    radius = 1
-                }
-                blurPercent <= 15 -> {
-                    passes = 2
-                    radius = 1 + (blurPercent - 5) / 3
-                }
-                blurPercent <= 40 -> {
-                    passes = 3
-                    radius = 2 + (blurPercent - 15) * 8 / 25
-                }
-                blurPercent <= 70 -> {
-                    passes = 3
-                    radius = 6 + (blurPercent - 40) * 10 / 30
-                }
-                else -> {
-                    passes = 3
-                    radius = 12 + (blurPercent - 70) * 16 / 30
-                }
-            }
-
-            multiPassBoxBlur(pixels, w, h, radius, passes)
-            output.setPixels(pixels, 0, w, 0, 0, w, h)
-
+        val output = BoxBlurEngine.blur(source, blurPercent)
+        if (output !== source && !output.isRecycled) {
             cachedBlurredBitmap = output
             cachedSourceKey = key
             cachedBlurPercent = blurPercent
-            output
-        } catch (_: Throwable) {
-            source
         }
-    }
-
-    private fun multiPassBoxBlur(pixels: IntArray, w: Int, h: Int, r: Int, passes: Int = 3) {
-        val total = w * h
-        val temp = if (scratchTemp != null && scratchTemp!!.size >= total) {
-            scratchTemp!!
-        } else {
-            val newArr = IntArray(total)
-            scratchTemp = newArr
-            newArr
-        }
-
-        for (p in 0 until passes.coerceIn(1, 3)) {
-            boxBlurPass(pixels, temp, w, h, r)
-        }
-    }
-
-    private fun boxBlurPass(pixels: IntArray, temp: IntArray, w: Int, h: Int, r: Int) {
-        val div = 2 * r + 1
-
-        for (y in 0 until h) {
-            var a = 0
-            var red = 0
-            var g = 0
-            var b = 0
-            val rowOffset = y * w
-
-            for (i in -r..r) {
-                val p = pixels[rowOffset + i.coerceIn(0, w - 1)]
-                a += (p ushr 24) and 0xff
-                red += (p ushr 16) and 0xff
-                g += (p ushr 8) and 0xff
-                b += p and 0xff
-            }
-
-            for (x in 0 until w) {
-                val avgA = (a / div).coerceIn(0, 255)
-                val avgR = (red / div).coerceIn(0, 255)
-                val avgG = (g / div).coerceIn(0, 255)
-                val avgB = (b / div).coerceIn(0, 255)
-                temp[rowOffset + x] = (avgA shl 24) or (avgR shl 16) or (avgG shl 8) or avgB
-
-                val pOut = pixels[rowOffset + (x - r).coerceIn(0, w - 1)]
-                val pIn = pixels[rowOffset + (x + r + 1).coerceIn(0, w - 1)]
-
-                a += ((pIn ushr 24) and 0xff) - ((pOut ushr 24) and 0xff)
-                red += ((pIn ushr 16) and 0xff) - ((pOut ushr 16) and 0xff)
-                g += ((pIn ushr 8) and 0xff) - ((pOut ushr 8) and 0xff)
-                b += (pIn and 0xff) - (pOut and 0xff)
-            }
-        }
-
-        for (x in 0 until w) {
-            var a = 0
-            var red = 0
-            var g = 0
-            var b = 0
-
-            for (i in -r..r) {
-                val p = temp[i.coerceIn(0, h - 1) * w + x]
-                a += (p ushr 24) and 0xff
-                red += (p ushr 16) and 0xff
-                g += (p ushr 8) and 0xff
-                b += p and 0xff
-            }
-
-            for (y in 0 until h) {
-                val avgA = (a / div).coerceIn(0, 255)
-                val avgR = (red / div).coerceIn(0, 255)
-                val avgG = (g / div).coerceIn(0, 255)
-                val avgB = (b / div).coerceIn(0, 255)
-                pixels[y * w + x] = (avgA shl 24) or (avgR shl 16) or (avgG shl 8) or avgB
-
-                val pOut = temp[(y - r).coerceIn(0, h - 1) * w + x]
-                val pIn = temp[(y + r + 1).coerceIn(0, h - 1) * w + x]
-
-                a += ((pIn ushr 24) and 0xff) - ((pOut ushr 24) and 0xff)
-                red += ((pIn ushr 16) and 0xff) - ((pOut ushr 16) and 0xff)
-                g += ((pIn ushr 8) and 0xff) - ((pOut ushr 8) and 0xff)
-                b += (pIn and 0xff) - (pOut and 0xff)
-            }
-        }
+        return output
     }
 
     private fun getEffectiveOffsetX(config: ScreenConfig, art: Bitmap?): Int {
@@ -522,96 +373,7 @@ object WallpaperRenderer {
         }
     }
 
-    @Synchronized
     fun getFocalXPercent(src: Bitmap): Int {
-        if (src.isRecycled || src.width <= 0 || src.height <= 0) return 0
-        if (src.width <= src.height) return 0
-        val key = System.identityHashCode(src)
-        if (cachedFocalKey == key) {
-            return cachedFocalXPercent
-        }
-        val calculated = calculateFocalXPercent(src)
-        cachedFocalKey = key
-        cachedFocalXPercent = calculated
-        return calculated
-    }
-
-    private fun calculateFocalXPercent(src: Bitmap): Int {
-        if (src.isRecycled || src.width <= 0 || src.height <= 0) return 0
-        if (src.width <= src.height) return 0
-
-        try {
-            val sampleW = 320
-            val sampleH = (sampleW * src.height / src.width).coerceAtLeast(16)
-            val evenW = if (sampleW % 2 == 0) sampleW else sampleW - 1
-            val scaled = Bitmap.createScaledBitmap(src, evenW, sampleH, false)
-            val rgb565 = scaled.copy(Bitmap.Config.RGB_565, false)
-            if (scaled != src && !scaled.isRecycled) scaled.recycle()
-
-            if (rgb565 != null) {
-                val detector = FaceDetector(evenW, sampleH, 3)
-                val faces = Array<FaceDetector.Face?>(3) { null }
-                val count = detector.findFaces(rgb565, faces)
-                if (count > 0) {
-                    var totalWeight = 0f
-                    var weightedX = 0f
-                    for (i in 0 until count) {
-                        val face = faces[i] ?: continue
-                        val mid = PointF()
-                        face.getMidPoint(mid)
-                        val eyeDist = face.eyesDistance()
-                        val weight = eyeDist.coerceAtLeast(10f)
-                        weightedX += (mid.x / evenW.toFloat()) * weight
-                        totalWeight += weight
-                    }
-                    rgb565.recycle()
-                    if (totalWeight > 0f) {
-                        val focalNormX = (weightedX / totalWeight).coerceIn(0f, 1f)
-                        return ((focalNormX - 0.5f) * 200f).roundToInt().coerceIn(-100, 100)
-                    }
-                }
-                if (!rgb565.isRecycled) rgb565.recycle()
-            }
-        } catch (_: Throwable) {
-        }
-
-        try {
-            val sampleW = 64
-            val sampleH = (sampleW * src.height / src.width).coerceAtLeast(8)
-            val scaled = Bitmap.createScaledBitmap(src, sampleW, sampleH, false)
-            val pixels = IntArray(sampleW * sampleH)
-            scaled.getPixels(pixels, 0, sampleW, 0, 0, sampleW, sampleH)
-            if (scaled != src && !scaled.isRecycled) scaled.recycle()
-
-            val columnEnergy = FloatArray(sampleW)
-            for (x in 1 until sampleW - 1) {
-                var colEnergy = 0f
-                for (y in 0 until sampleH) {
-                    val pLeft = pixels[y * sampleW + (x - 1)]
-                    val pRight = pixels[y * sampleW + (x + 1)]
-                    val rDiff = abs(((pRight shr 16) and 0xFF) - ((pLeft shr 16) and 0xFF))
-                    val gDiff = abs(((pRight shr 8) and 0xFF) - ((pLeft shr 8) and 0xFF))
-                    val bDiff = abs((pRight and 0xFF) - (pLeft and 0xFF))
-                    colEnergy += (rDiff + gDiff + bDiff).toFloat()
-                }
-                columnEnergy[x] = colEnergy
-            }
-
-            var totalEnergy = 0f
-            var weightedX = 0f
-            for (x in 0 until sampleW) {
-                val e = columnEnergy[x]
-                weightedX += (x.toFloat() / (sampleW - 1).toFloat()) * e
-                totalEnergy += e
-            }
-
-            if (totalEnergy > 0f) {
-                val normX = (weightedX / totalEnergy).coerceIn(0f, 1f)
-                return ((normX - 0.5f) * 200f).roundToInt().coerceIn(-100, 100)
-            }
-        } catch (_: Throwable) {
-        }
-
-        return 0
+        return SmartFramingDetector.getFocalXPercent(src)
     }
 }

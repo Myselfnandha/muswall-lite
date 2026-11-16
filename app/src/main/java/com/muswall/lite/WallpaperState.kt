@@ -1,13 +1,10 @@
 package com.muswall.lite
 
-import android.annotation.SuppressLint
-import android.app.WallpaperManager
 import android.content.Context
-import android.content.SharedPreferences
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.os.Build
+import com.muswall.lite.data.repository.RestoreImageRepository
+import com.muswall.lite.data.repository.WallpaperConfigRepository
+import com.muswall.lite.domain.model.ScreenConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -15,54 +12,24 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.File
-import java.io.FileOutputStream
 
-data class ScreenConfig(
-    val effectType: Int = EFFECT_BLUR_STILL,
-    val blurPercent: Int = 45,
-    val dimPercent: Int = 20,
-    val stillScalePercent: Int = 80,
-    val stillOffsetYPercent: Int = -35,
-    val stillCornerRadiusPercent: Int = 12,
-    val applyEffect: Int = TRANSITION_FADE,
-    val restoreEffect: Int = TRANSITION_FADE,
-    val restoreDelaySeconds: Int = 30,
-    val applyEffectsToRestore: Boolean = false,
-    val restoreBlurPercent: Int = 45,
-    val restoreDimPercent: Int = 20,
-    val wallpaperOffsetYPercent: Int = -35,
-    val wallpaperOffsetXPercent: Int = 0,
-    val autoHorizontalFraming: Boolean = true,
-    val aspectFitMode: Int = ASPECT_FIT_WIDTH
-) {
-    companion object {
-        const val EFFECT_BLUR = 0
-        const val EFFECT_STILL = 1
-        const val EFFECT_BLUR_STILL = 2
+typealias ScreenConfig = com.muswall.lite.domain.model.ScreenConfig
 
-        const val ASPECT_FILL = 0
-        const val ASPECT_FIT_WIDTH = 1
-
-        const val TRANSITION_FADE = 0
-        const val TRANSITION_ZOOM = 1
-        const val TRANSITION_SLIDE_UP = 2
-        const val TRANSITION_SLIDE_DOWN = 3
-        const val TRANSITION_RADIAL = 4
-        const val TRANSITION_BLUR_DISSOLVE = 5
-        const val TRANSITION_NONE = 6
-    }
-}
-
+/**
+ * Global reactive state facade for MusWall Lite.
+ * Orchestrates playback state, blur precomputations, restore delay timers,
+ * and delegates persistence to [WallpaperConfigRepository] and [RestoreImageRepository].
+ */
 object WallpaperState {
-    private const val PREFS_NAME = "muswall_lite_prefs"
-    private const val HOME_RESTORE_IMAGE = "home_restore_wallpaper.png"
-    private const val LOCK_RESTORE_IMAGE = "lock_restore_wallpaper.png"
 
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     private var homeRestoreJob: Job? = null
     private var lockRestoreJob: Job? = null
     private var precomputeJob: Job? = null
+
+    private var appContext: Context? = null
+    private var configRepository: WallpaperConfigRepository? = null
+    private var restoreRepository: RestoreImageRepository? = null
 
     private val _currentArt = MutableStateFlow<Bitmap?>(null)
     val currentArt = _currentArt.asStateFlow()
@@ -123,12 +90,21 @@ object WallpaperState {
     val separateScreens = _separateScreens.asStateFlow()
 
     fun init(context: Context) {
-        loadConfigs(context)
-        loadRestoreImages(context)
+        val appCtx = context.applicationContext
+        appContext = appCtx
+        val configRepo = WallpaperConfigRepository(appCtx).also { configRepository = it }
+        val restoreRepo = RestoreImageRepository(appCtx).also { restoreRepository = it }
+
+        _separateScreens.value = configRepo.isSeparateScreens()
+        _homeConfig.value = configRepo.getHomeConfig()
+        _lockConfig.value = configRepo.getLockConfig()
+
         if (!_isPlaying.value) {
             _isHomeRestoreActive.value = true
             _isLockRestoreActive.value = true
         }
+
+        loadRestoreImages(appCtx, restoreRepo)
     }
 
     fun updateMedia(context: Context, art: Bitmap?, playing: Boolean, title: String?) {
@@ -234,64 +210,9 @@ object WallpaperState {
         }
     }
 
-    private var defaultHomeRestoreArt: Bitmap? = null
-    private var defaultLockRestoreArt: Bitmap? = null
-
     fun getDefaultRestoreArt(isLockScreen: Boolean): Bitmap {
-        if (isLockScreen) {
-            val cached = defaultLockRestoreArt
-            if (cached != null && !cached.isRecycled) return cached
-            val bmp = createDefaultArtwork(isLock = true)
-            defaultLockRestoreArt = bmp
-            return bmp
-        } else {
-            val cached = defaultHomeRestoreArt
-            if (cached != null && !cached.isRecycled) return cached
-            val bmp = createDefaultArtwork(isLock = false)
-            defaultHomeRestoreArt = bmp
-            return bmp
-        }
-    }
-
-    private fun createDefaultArtwork(isLock: Boolean): Bitmap {
-        val w = 1080
-        val h = 2400
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-
-        val colors = if (isLock) {
-            intArrayOf(
-                android.graphics.Color.parseColor("#0F2027"),
-                android.graphics.Color.parseColor("#203A43"),
-                android.graphics.Color.parseColor("#2C5364")
-            )
-        } else {
-            intArrayOf(
-                android.graphics.Color.parseColor("#2E1065"),
-                android.graphics.Color.parseColor("#701A75"),
-                android.graphics.Color.parseColor("#9D174D"),
-                android.graphics.Color.parseColor("#EA580C")
-            )
-        }
-
-        val gradient = android.graphics.LinearGradient(
-            0f, 0f, 0f, h.toFloat(),
-            colors,
-            null,
-            android.graphics.Shader.TileMode.CLAMP
-        )
-        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            shader = gradient
-        }
-        canvas.drawRect(0f, 0f, w.toFloat(), h.toFloat(), paint)
-
-        val shapePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(40, 255, 255, 255)
-            style = android.graphics.Paint.Style.FILL
-        }
-        canvas.drawCircle(w * 0.5f, h * 0.4f, w * 0.35f, shapePaint)
-
-        return bmp
+        val repo = restoreRepository ?: appContext?.let { RestoreImageRepository(it) }
+        return repo?.getDefaultArtwork(isLockScreen) ?: RestoreImageRepository.createAmbientGradientArtwork(isLockScreen)
     }
 
     fun getRestoreArt(isLockScreen: Boolean): Bitmap {
@@ -322,7 +243,8 @@ object WallpaperState {
     fun updateHomeConfig(context: Context, config: ScreenConfig) {
         val delayChanged = _homeConfig.value.restoreDelaySeconds != config.restoreDelaySeconds
         _homeConfig.value = config
-        saveConfig(context, "home", config)
+        val repo = configRepository ?: WallpaperConfigRepository(context.applicationContext)
+        repo.saveHomeConfig(config)
         if (!_isPlaying.value && delayChanged) {
             armRestoreJob(false)
         }
@@ -332,7 +254,8 @@ object WallpaperState {
     fun updateLockConfig(context: Context, config: ScreenConfig) {
         val delayChanged = _lockConfig.value.restoreDelaySeconds != config.restoreDelaySeconds
         _lockConfig.value = config
-        saveConfig(context, "lock", config)
+        val repo = configRepository ?: WallpaperConfigRepository(context.applicationContext)
+        repo.saveLockConfig(config)
         if (!_isPlaying.value && delayChanged && _separateScreens.value) {
             armRestoreJob(true)
         }
@@ -341,58 +264,50 @@ object WallpaperState {
 
     fun setSeparateScreens(context: Context, enabled: Boolean) {
         _separateScreens.value = enabled
-        getPrefs(context).edit().putBoolean("separate_screens", enabled).apply()
+        val repo = configRepository ?: WallpaperConfigRepository(context.applicationContext)
+        repo.setSeparateScreens(enabled)
         notifySettingsChanged()
     }
 
     fun setHomeRestoreBitmap(context: Context, bitmap: Bitmap?) {
         _homeRestoreArt.value = bitmap
-        saveRestoreImageFile(context, HOME_RESTORE_IMAGE, bitmap)
+        val repo = restoreRepository ?: RestoreImageRepository(context.applicationContext)
+        scope.launch {
+            repo.saveHomeRestoreImage(bitmap)
+        }
         notifySettingsChanged()
     }
 
     fun setLockRestoreBitmap(context: Context, bitmap: Bitmap?) {
         _lockRestoreArt.value = bitmap
-        saveRestoreImageFile(context, LOCK_RESTORE_IMAGE, bitmap)
+        val repo = restoreRepository ?: RestoreImageRepository(context.applicationContext)
+        scope.launch {
+            repo.saveLockRestoreImage(bitmap)
+        }
         notifySettingsChanged()
     }
 
     fun setUnifiedRestoreBitmap(context: Context, bitmap: Bitmap?) {
         _homeRestoreArt.value = bitmap
         _lockRestoreArt.value = bitmap
-        saveRestoreImageFile(context, HOME_RESTORE_IMAGE, bitmap)
-        saveRestoreImageFile(context, LOCK_RESTORE_IMAGE, bitmap)
+        val repo = restoreRepository ?: RestoreImageRepository(context.applicationContext)
+        scope.launch {
+            repo.saveHomeRestoreImage(bitmap)
+            repo.saveLockRestoreImage(bitmap)
+        }
         notifySettingsChanged()
     }
 
     private var systemCaptureAttempted = false
 
-    @SuppressLint("MissingPermission")
     fun captureSystemDefaultWallpaper(context: Context) {
         if (systemCaptureAttempted) return
         systemCaptureAttempted = true
-        scope.launch(Dispatchers.IO) {
-            try {
-                val wm = WallpaperManager.getInstance(context)
-                val drawable = try {
-                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                        wm.drawable ?: wm.builtInDrawable
-                    } else {
-                        wm.builtInDrawable
-                    }
-                } catch (_: SecurityException) {
-                    null
-                }
-                if (drawable != null) {
-                    val w = drawable.intrinsicWidth.coerceIn(1080, 1440)
-                    val h = drawable.intrinsicHeight.coerceIn(1920, 3200)
-                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    val canvas = Canvas(bmp)
-                    drawable.setBounds(0, 0, w, h)
-                    drawable.draw(canvas)
-                    setUnifiedRestoreBitmap(context, bmp)
-                }
-            } catch (_: Exception) {
+        val repo = restoreRepository ?: RestoreImageRepository(context.applicationContext)
+        scope.launch {
+            val bmp = repo.captureSystemWallpaper()
+            if (bmp != null) {
+                setUnifiedRestoreBitmap(context, bmp)
             }
         }
     }
@@ -440,101 +355,16 @@ object WallpaperState {
         }
     }
 
-    private fun loadConfigs(context: Context) {
-        val prefs = getPrefs(context)
-        _separateScreens.value = prefs.getBoolean("separate_screens", false)
-        _homeConfig.value = readConfig(prefs, "home")
-        _lockConfig.value = readConfig(prefs, "lock")
-    }
-
-    private fun readConfig(prefs: SharedPreferences, prefix: String): ScreenConfig {
-        val defaultOffset = if (prefix == "lock") 35 else -35
-        return ScreenConfig(
-            effectType = prefs.getInt("${prefix}_effect_type", ScreenConfig.EFFECT_BLUR_STILL),
-            blurPercent = prefs.getInt("${prefix}_blur_percent", 45),
-            dimPercent = prefs.getInt("${prefix}_dim_percent", 20),
-            stillScalePercent = prefs.getInt("${prefix}_still_scale_percent", 80),
-            stillOffsetYPercent = prefs.getInt("${prefix}_still_offset_y_percent", defaultOffset),
-            stillCornerRadiusPercent = prefs.getInt("${prefix}_still_corner_radius_percent", 12),
-            applyEffect = prefs.getInt("${prefix}_apply_effect", ScreenConfig.TRANSITION_FADE),
-            restoreEffect = prefs.getInt("${prefix}_restore_effect", ScreenConfig.TRANSITION_FADE),
-            restoreDelaySeconds = prefs.getInt("${prefix}_restore_delay", 30),
-            applyEffectsToRestore = prefs.getBoolean("${prefix}_apply_effects_to_restore", false),
-            restoreBlurPercent = prefs.getInt("${prefix}_restore_blur_percent", 45),
-            restoreDimPercent = prefs.getInt("${prefix}_restore_dim_percent", 20),
-            wallpaperOffsetYPercent = prefs.getInt("${prefix}_wallpaper_offset_y_percent", defaultOffset),
-            wallpaperOffsetXPercent = prefs.getInt("${prefix}_wallpaper_offset_x_percent", 0),
-            autoHorizontalFraming = prefs.getBoolean("${prefix}_auto_horizontal_framing", true),
-            aspectFitMode = prefs.getInt("${prefix}_aspect_fit_mode", ScreenConfig.ASPECT_FIT_WIDTH)
-        )
-    }
-
-    private fun saveConfig(context: Context, prefix: String, config: ScreenConfig) {
-        getPrefs(context).edit().apply {
-            putInt("${prefix}_effect_type", config.effectType)
-            putInt("${prefix}_blur_percent", config.blurPercent)
-            putInt("${prefix}_dim_percent", config.dimPercent)
-            putInt("${prefix}_still_scale_percent", config.stillScalePercent)
-            putInt("${prefix}_still_offset_y_percent", config.stillOffsetYPercent)
-            putInt("${prefix}_still_corner_radius_percent", config.stillCornerRadiusPercent)
-            putInt("${prefix}_apply_effect", config.applyEffect)
-            putInt("${prefix}_restore_effect", config.restoreEffect)
-            putInt("${prefix}_restore_delay", config.restoreDelaySeconds)
-            putBoolean("${prefix}_apply_effects_to_restore", config.applyEffectsToRestore)
-            putInt("${prefix}_restore_blur_percent", config.restoreBlurPercent)
-            putInt("${prefix}_restore_dim_percent", config.restoreDimPercent)
-            putInt("${prefix}_wallpaper_offset_y_percent", config.wallpaperOffsetYPercent)
-            putInt("${prefix}_wallpaper_offset_x_percent", config.wallpaperOffsetXPercent)
-            putBoolean("${prefix}_auto_horizontal_framing", config.autoHorizontalFraming)
-            putInt("${prefix}_aspect_fit_mode", config.aspectFitMode)
-            apply()
-        }
-    }
-
-    private fun saveRestoreImageFile(context: Context, filename: String, bitmap: Bitmap?) {
+    private fun loadRestoreImages(context: Context, repo: RestoreImageRepository) {
         scope.launch(Dispatchers.IO) {
-            val file = File(context.filesDir, filename)
-            if (bitmap != null) {
-                try {
-                    FileOutputStream(file).use { out ->
-                        bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
-                    }
-                } catch (_: Exception) {
-                }
-            } else {
-                if (file.exists()) file.delete()
-            }
-        }
-    }
-
-    private fun loadRestoreImages(context: Context) {
-        scope.launch(Dispatchers.IO) {
-            val homeFile = File(context.filesDir, HOME_RESTORE_IMAGE)
-            if (homeFile.exists()) {
-                try {
-                    val bmp = BitmapFactory.decodeFile(homeFile.absolutePath)
-                    if (bmp != null) {
-                        _homeRestoreArt.value = bmp
-                    } else {
-                        homeFile.delete()
-                    }
-                } catch (_: Throwable) {
-                    try { homeFile.delete() } catch (_: Throwable) {}
-                }
+            val homeBmp = repo.loadHomeRestoreImage()
+            if (homeBmp != null) {
+                _homeRestoreArt.value = homeBmp
             }
 
-            val lockFile = File(context.filesDir, LOCK_RESTORE_IMAGE)
-            if (lockFile.exists()) {
-                try {
-                    val bmp = BitmapFactory.decodeFile(lockFile.absolutePath)
-                    if (bmp != null) {
-                        _lockRestoreArt.value = bmp
-                    } else {
-                        lockFile.delete()
-                    }
-                } catch (_: Throwable) {
-                    try { lockFile.delete() } catch (_: Throwable) {}
-                }
+            val lockBmp = repo.loadLockRestoreImage()
+            if (lockBmp != null) {
+                _lockRestoreArt.value = lockBmp
             }
 
             if (_homeRestoreArt.value == null && _lockRestoreArt.value == null) {
@@ -543,9 +373,5 @@ object WallpaperState {
                 schedulePrecomputeBlur()
             }
         }
-    }
-
-    private fun getPrefs(context: Context): SharedPreferences {
-        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     }
 }
